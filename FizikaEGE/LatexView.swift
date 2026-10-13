@@ -31,7 +31,7 @@ indirect enum MathNode {
     case sub(MathNode, MathNode)
 }
 
-enum MiniLatexParser {
+enum MathParser {
     static let greek: [String: String] = [
         "alpha": "α", "beta": "β", "gamma": "γ", "Gamma": "Γ",
         "delta": "δ", "Delta": "Δ", "varepsilon": "ε", "epsilon": "ϵ",
@@ -49,146 +49,172 @@ enum MiniLatexParser {
     ]
 
     static func parse(_ s: String) -> MathNode {
-        let chars = Array(s)
-        var i = 0
-        func parseGroup() -> MathNode {
-            var nodes: [MathNode] = []
-            while i < chars.count {
-                let c = chars[i]
-                if c == "}" { i += 1; break }
-                if c == "\\" {
-                    i += 1
-                    var name = ""
-                    while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
-                    if name.isEmpty && i < chars.count {
-                        // экранированный символ: \{ \} \% \& — показать как есть
-                        nodes.append(.text(String(chars[i]))); i += 1; continue
-                    }
-                    switch name {
-                    case "frac":
-                        let a = parseArg(); let b = parseArg()
-                        nodes.append(.frac(a, b))
-                    case "sqrt":
-                        nodes.append(.sqrt(parseArg()))
-                    case "vec":
-                        let v = parseArg()
-                        nodes.append(.group([v, .text("⃗")])) // стрелка поверх (combining)
-                    case "text", "mathrm", "textup":
-                        nodes.append(.text(collectArg()))
-                    case "mathcal":
-                        let inner = collectArg()
-                        nodes.append(.text(inner == "E" ? "ℰ" : inner))
-                    default:
-                        if let g = greek[name] { nodes.append(.text(g)) }
-                        else if let sym = symbols[name] { nodes.append(.text(sym)) }
-                        else if !name.isEmpty { nodes.append(.text(name)) } // cos/sin уже в symbols
-                    }
-                } else if c == "{" {
-                    i += 1
-                    nodes.append(parseGroup())
-                } else if c == "_" || c == "^" {
-                    let isSub = (c == "_")
-                    i += 1
-                    let arg = parseSingle()
-                    if let last = nodes.popLast() {
-                        nodes.append(isSub ? .sub(last, arg) : .sup(last, arg))
-                    } else {
-                        nodes.append(arg)
-                    }
-                } else if c == "&" || c == "\n" {
-                    i += 1 // выравнивание таблиц — пропускаем
-                } else {
-                    var t = ""
-                    while i < chars.count && !"\\{}_^&".contains(chars[i]) { t.append(chars[i]); i += 1 }
-                    if !t.isEmpty { nodes.append(.text(t)) }
-                }
-            }
-            if nodes.count == 1 { return nodes[0] }
-            return .group(nodes)
-        }
-        func parseArg() -> MathNode {
-            while i < chars.count && chars[i] == " " { i += 1 }
-            if i < chars.count && chars[i] == "{" { i += 1; return parseGroup() }
-            return parseSingle()
-        }
-        func parseSingle() -> MathNode {
-            while i < chars.count && chars[i] == " " { i += 1 }
-            guard i < chars.count else { return .text("") }
-            if chars[i] == "{" { i += 1; return parseGroup() }
-            if chars[i] == "\\" {
-                i += 1
-                var name = ""
-                while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
-                if let g = greek[name] { return .text(g) }
-                if let sym = symbols[name] { return .text(sym) }
-                if name == "vec" { return .group([parseArg(), .text("⃗")]) }
-                if name == "mathcal" { let s = collectArg(); return .text(s == "E" ? "ℰ" : s) }
-                return .text(name)
-            }
-            let c = String(chars[i]); i += 1
-            return .text(c)
-        }
-        func collectArg() -> String {
-            let n = parseArg()
-            var out = ""
-            func walk(_ node: MathNode) {
-                switch node {
-                case .text(let s): out += s
-                case .group(let a): a.forEach(walk)
-                case .frac(let a, let b): walk(a); out += "/"; walk(b)
-                case .sqrt(let a): walk(a)
-                case .sup(let a, let b): walk(a); out += "^"; walk(b)
-                case .sub(let a, let b): walk(a); out += "_"; walk(b)
-                }
-            }
-            walk(n)
-            return out
-        }
-        return parseGroup()
+        let parser = LatexCursor(chars: Array(s))
+        return parser.parseGroup()
     }
 }
 
-// MARK: Renderer (SwiftUI-нативный)
+// MARK: Рекурсивный спуск — отдельным классом, чтобы методы могли
+// свободно вызывать друг друга (вложенные func так не умеют).
+private final class LatexCursor {
+    let chars: [Character]
+    var i = 0
+
+    init(chars: [Character]) {
+        self.chars = chars
+    }
+
+    func parseGroup() -> MathNode {
+        var nodes: [MathNode] = []
+        while i < chars.count {
+            let c = chars[i]
+            if c == "}" { i += 1; break }
+            if c == "\\" {
+                i += 1
+                var name = ""
+                while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
+                if name.isEmpty && i < chars.count {
+                    // экранированный символ: \{ \} \% \& — показать как есть
+                    nodes.append(.text(String(chars[i]))); i += 1; continue
+                }
+                switch name {
+                case "frac":
+                    let a = parseArg(); let b = parseArg()
+                    nodes.append(.frac(a, b))
+                case "sqrt":
+                    nodes.append(.sqrt(parseArg()))
+                case "vec":
+                    let v = parseArg()
+                    nodes.append(.group([v, .text("⃗")])) // стрелка поверх (combining)
+                case "text", "mathrm", "textup":
+                    nodes.append(.text(collectArg()))
+                case "mathcal":
+                    let inner = collectArg()
+                    nodes.append(.text(inner == "E" ? "ℰ" : inner))
+                default:
+                    if let g = MathParser.greek[name] { nodes.append(.text(g)) }
+                    else if let sym = MathParser.symbols[name] { nodes.append(.text(sym)) }
+                    else if !name.isEmpty { nodes.append(.text(name)) }
+                }
+            } else if c == "{" {
+                i += 1
+                nodes.append(parseGroup())
+            } else if c == "_" || c == "^" {
+                let isSub = (c == "_")
+                i += 1
+                let arg = parseSingle()
+                if let last = nodes.popLast() {
+                    nodes.append(isSub ? .sub(last, arg) : .sup(last, arg))
+                } else {
+                    nodes.append(arg)
+                }
+            } else if c == "&" || c == "\n" {
+                i += 1 // выравнивание таблиц — пропускаем
+            } else {
+                var t = ""
+                while i < chars.count && !"\\{}_^&".contains(chars[i]) { t.append(chars[i]); i += 1 }
+                if !t.isEmpty { nodes.append(.text(t)) }
+            }
+        }
+        if nodes.count == 1 { return nodes[0] }
+        return .group(nodes)
+    }
+
+    func parseArg() -> MathNode {
+        while i < chars.count && chars[i] == " " { i += 1 }
+        if i < chars.count && chars[i] == "{" { i += 1; return parseGroup() }
+        return parseSingle()
+    }
+
+    func parseSingle() -> MathNode {
+        while i < chars.count && chars[i] == " " { i += 1 }
+        guard i < chars.count else { return .text("") }
+        if chars[i] == "{" { i += 1; return parseGroup() }
+        if chars[i] == "\\" {
+            i += 1
+            var name = ""
+            while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
+            if let g = MathParser.greek[name] { return .text(g) }
+            if let sym = MathParser.symbols[name] { return .text(sym) }
+            if name == "vec" { return .group([parseArg(), .text("⃗")]) }
+            if name == "mathcal" {
+                let s = collectArg()
+                return .text(s == "E" ? "ℰ" : s)
+            }
+            return .text(name)
+        }
+        let c = String(chars[i]); i += 1
+        return .text(c)
+    }
+
+    func collectArg() -> String {
+        let n = parseArg()
+        var out = ""
+        walk(n, into: &out)
+        return out
+    }
+
+    private func walk(_ node: MathNode, into out: inout String) {
+        switch node {
+        case .text(let s): out += s
+        case .group(let a): for n in a { walk(n, into: &out) }
+        case .frac(let a, let b): walk(a, into: &out); out += "/"; walk(b, into: &out)
+        case .sqrt(let a): walk(a, into: &out)
+        case .sup(let a, let b): walk(a, into: &out); out += "^"; walk(b, into: &out)
+        case .sub(let a, let b): walk(a, into: &out); out += "_"; walk(b, into: &out)
+        }
+    }
+}
+
+// MARK: Renderer — отдельной View-структурой: рекурсия через
+// номинальный тип компилируется, рекурсивная func с some View — нет.
+struct MathNodeView: View {
+    let node: MathNode
+    let size: CGFloat
+
+    @ViewBuilder
+    var body: some View {
+        switch node {
+        case .text(let s):
+            Text(s).font(.system(size: size)).multilineTextAlignment(.center)
+        case .group(let arr):
+            HStack(spacing: 1) {
+                ForEach(arr.indices, id: \.self) { idx in
+                    MathNodeView(node: arr[idx], size: size)
+                }
+            }
+        case .frac(let a, let b):
+            VStack(spacing: 1) {
+                MathNodeView(node: a, size: size * 0.85)
+                Divider().frame(minWidth: 20)
+                MathNodeView(node: b, size: size * 0.85)
+            }
+        case .sqrt(let a):
+            HStack(spacing: 0) {
+                Text("√").font(.system(size: size))
+                MathNodeView(node: a, size: size * 0.9)
+                    .overlay(alignment: .top) { Rectangle().frame(height: 1).opacity(0.9) }
+            }
+        case .sup(let base, let exp):
+            HStack(alignment: .top, spacing: 0) {
+                MathNodeView(node: base, size: size)
+                MathNodeView(node: exp, size: size * 0.62).offset(y: -size * 0.28)
+            }
+        case .sub(let base, let exp):
+            HStack(alignment: .bottom, spacing: 0) {
+                MathNodeView(node: base, size: size)
+                MathNodeView(node: exp, size: size * 0.62).offset(y: size * 0.18)
+            }
+        }
+    }
+}
+
 struct MiniLatex: View {
     let latex: String
     var fontSize: CGFloat = 22
 
     var body: some View {
-        nodeView(MiniLatexParser.parse(latex), size: fontSize)
-    }
-
-    @ViewBuilder
-    private func nodeView(_ node: MathNode, size: CGFloat) -> some View {
-        switch node {
-        case .text(let s):
-            Text(s).font(.system(size: size)).multilineTextAlignment(.center)
-        case .group(let arr):
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
-                ForEach(arr.indices, id: \.self) { nodeView(arr[$0], size: size) }
-            }
-        case .frac(let a, let b):
-            VStack(spacing: 1) {
-                nodeView(a, size: size * 0.85)
-                Divider().frame(minWidth: 20)
-                nodeView(b, size: size * 0.85)
-            }
-        case .sqrt(let a):
-            HStack(spacing: 0) {
-                Text("√").font(.system(size: size))
-                nodeView(a, size: size * 0.9)
-                    .overlay(alignment: .top) { Rectangle().frame(height: 1).opacity(0.9) }
-            }
-        case .sup(let base, let exp):
-            HStack(alignment: .top, spacing: 0) {
-                nodeView(base, size: size)
-                nodeView(exp, size: size * 0.62).offset(y: -size * 0.28)
-            }
-        case .sub(let base, let exp):
-            HStack(alignment: .bottom, spacing: 0) {
-                nodeView(base, size: size)
-                nodeView(exp, size: size * 0.62).offset(y: size * 0.18)
-            }
-        }
+        MathNodeView(node: MathParser.parse(latex), size: fontSize)
     }
 }
 
