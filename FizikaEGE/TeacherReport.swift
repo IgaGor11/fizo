@@ -24,7 +24,7 @@ enum TeacherReport {
                 func draw(_ text: String, font: UIFont, color: UIColor = .black, gap: CGFloat = 6) {
                     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
                     let h = (text as NSString).boundingRect(with: CGSize(width: contentW, height: 1000),
-                        options: .usesLineFragmentOrigin, attributes: attrs).height
+                        options: .usesLineFragmentOrigin, attributes: attrs, context: nil).height
                     if y + h > 800 { ctx.beginPage(); y = margin }
                     (text as NSString).draw(in: CGRect(x: margin, y: y, width: contentW, height: h + 4), withAttributes: attrs)
                     y += h + gap

@@ -9,7 +9,7 @@ enum FormulaLevel: String, Codable, CaseIterable {
     case high = "высокий"
 }
 
-struct SymbolInfo: Codable {
+struct SymbolInfo: Codable, Hashable {
     let meaning: String
     let unit: String
 }
