@@ -31,7 +31,7 @@ struct Formula: Codable, Identifiable, Hashable {
 struct FormulasBundle {
     static let sectionsOrder = [
         "Механика",
-        "Молекулярная физика и термодинамика",
+        "МКТ и термодинамика",
         "Электродинамика",
         "Оптика",
         "Квантовая физика"

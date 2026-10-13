@@ -165,10 +165,11 @@ final class ProgressStore: ObservableObject {
 
     /// Готовый список для сессии: сначала просроченные, а если повторять
     /// нечего — все формулы области в случайном порядке (тренировка не пустая).
-    func sessionFormulas(scope: [Formula], limit: Int = 20, now: Date = Date()) -> [Formula] {
+    /// Без лимита: сессия покрывает ВСЕ формулы области.
+    func sessionFormulas(scope: [Formula], limit: Int? = nil, now: Date = Date()) -> [Formula] {
         let due = dueFormulas(scope: scope, now: now)
-        if !due.isEmpty { return Array(due.prefix(limit)) }
-        return Array(scope.shuffled().prefix(limit))
+        if !due.isEmpty { return Array(due.prefix(limit ?? due.count)) }
+        return Array(scope.shuffled().prefix(limit ?? scope.count))
     }
 
     // MARK: Adaptive Mix — выбор режима по силе памяти
@@ -315,25 +316,101 @@ final class ProgressStore: ObservableObject {
         return false
     }
 
-    /// Токены для режима сборки: разбивка LaTeX на блоки.
-    static func tokens(for latex: String) -> [String] {
-        // Простая токенизация: команды \xxx — целиком, остальное — по символам
-        var out: [String] = []
-        var i = latex.startIndex
-        while i < latex.endIndex {
-            let c = latex[i]
+    /// Часть формулы для режима «Выбор из 4»: всё после ПЕРВОГО «=».
+    /// Название-левая часть прячется, внутренние «=» у многосоставных
+    /// формул остаются (иначе от них ничего не останется).
+    static func displayFormula(_ latex: String) -> String {
+        guard let r = latex.range(of: "=") else { return latex }
+        let tail = latex[r.upperBound...].trimmingCharacters(in: .whitespaces)
+        return tail.isEmpty ? latex : String(tail)
+    }
+
+    /// Обозначение-символ формулы: часть до первого «=» (показываем рядом
+    /// с названием в вариантах ответа).
+    static func symbolOf(_ latex: String) -> String {
+        if let r = latex.range(of: "=") {
+            let head = latex[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+            if !head.isEmpty { return String(head) }
+        }
+        return latex
+    }
+
+    /// Токены для режима сборки: ЧЕЛОВЕЧЕСКИЕ подписи + исходный LaTeX-код.
+    /// Никаких \frac \text \quad на экране: дроби — «⁄», команды — буквами,
+    /// скобки {} и пробелы прячем вовсе (проверка их всё равно игнорирует).
+    struct BuildToken: Hashable {
+        let display: String
+        let code: String
+    }
+
+    static func buildTokens(for latex: String) -> [BuildToken] {
+        var out: [BuildToken] = []
+        let chars = Array(latex)
+        var i = 0
+        func emit(_ display: String, _ code: String) {
+            out.append(BuildToken(display: display, code: code))
+        }
+        while i < chars.count {
+            let c = chars[i]
             if c == "\\" {
-                var j = latex.index(after: i)
-                while j < latex.endIndex && latex[j].isLetter { j = latex.index(after: j) }
-                out.append(String(latex[i..<j]))
-                i = j
-            } else if c == " " {
-                i = latex.index(after: i)
+                i += 1
+                var name = ""
+                while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
+                if name.isEmpty {
+                    if i < chars.count {
+                        let ch = String(chars[i])
+                        emit(ch, "\\" + ch); i += 1
+                    }
+                    continue
+                }
+                switch name {
+                case "frac": emit("⁄", "\\frac")
+                case "sqrt": emit("√", "\\sqrt")
+                case "vec": emit("→", "\\vec")
+                case "bar": emit("¯", "\\bar")
+                case "text", "mathrm":
+                    // содержимое \text{...} — обычными буквами, без команды
+                    if i < chars.count && chars[i] == "{" {
+                        i += 1
+                        while i < chars.count && chars[i] != "}" {
+                            let ch = chars[i]
+                            if ch != " " { emit(String(ch), String(ch)) }
+                            i += 1
+                        }
+                        if i < chars.count { i += 1 }
+                    }
+                case "mathcal":
+                    if i < chars.count && chars[i] == "{" {
+                        i += 1
+                        var inner = ""
+                        while i < chars.count && chars[i] != "}" { inner.append(chars[i]); i += 1 }
+                        if i < chars.count { i += 1 }
+                        emit(inner == "E" ? "ℰ" : inner, "\\mathcal{\(inner)}")
+                    } else {
+                        emit(name, "\\" + name)
+                    }
+                default:
+                    if let g = MathParser.greek[name] { emit(g, "\\" + name) }
+                    else if let s = MathParser.symbols[name] {
+                        if s.trimmingCharacters(in: .whitespaces).isEmpty {
+                            i += 0 // пробельные команды (\quad и т.п.) — пропускаем молча
+                        } else {
+                            emit(s, "\\" + name)
+                        }
+                    } else {
+                        emit(name, "\\" + name)
+                    }
+                }
+            } else if c == "{" || c == "}" || c == " " || c == "&" || c == "\n" {
+                i += 1 // служебное — не показываем
+            } else if c == "_" {
+                emit("˅", "_"); i += 1
+            } else if c == "^" {
+                emit("˄", "^"); i += 1
             } else {
-                out.append(String(c))
-                i = latex.index(after: i)
+                emit(String(c), String(c)); i += 1
             }
         }
-        return out.filter { !$0.isEmpty }
+        return out
     }
 }

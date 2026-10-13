@@ -1,4 +1,4 @@
-name: ios-ipa
+﻿name: ios-ipa
 
 on:
   workflow_dispatch:
@@ -51,14 +51,14 @@ jobs:
         run: |
           APP_PATH=$(echo build/FizikaEGE.xcarchive/Products/Applications/*.app)
           echo "App: $APP_PATH"
-          rm -rf Payload EzyFizi-unsigned.ipa
+          rm -rf Payload EasyFizi-unsigned.ipa
           mkdir Payload
           cp -R "$APP_PATH" Payload/
-          zip -r EzyFizi-unsigned.ipa Payload
+          zip -r EasyFizi-unsigned.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: EzyFizi-unsigned
-          path: EzyFizi-unsigned.ipa
+          name: EasyFizi-unsigned
+          path: EasyFizi-unsigned.ipa
           retention-days: 30

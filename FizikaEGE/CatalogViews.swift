@@ -12,17 +12,18 @@ struct CatalogView: View {
                 NavigationLink {
                     SectionView(section: sec)
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(sec).font(.headline)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(sec).font(.title3).bold()
                         HStack {
                             ProgressView(value: s.fraction).frame(maxWidth: 140)
                             Text("\(Int(s.fraction * 100))% · ур. \(String(format: "%.1f", s.avgLevel))")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.callout).foregroundStyle(.secondary)
                             if s.problems > 0 {
-                                Text("⚠ \(s.problems)").font(.caption)
+                                Text("⚠ \(s.problems)").font(.callout)
                             }
                         }
                     }
+                    .padding(.vertical, 8)
                 }
             }
             .navigationTitle("Каталог")
@@ -42,18 +43,19 @@ struct SectionView: View {
             NavigationLink {
                 TopicView(topic: topic)
             } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(topic).font(.headline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(topic).font(.title3).bold()
                     Text("\(Int(s.fraction * 100))% · средний уровень \(String(format: "%.1f", s.avgLevel))")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(.secondary)
                     if s.avgLevel < 4 && s.fraction < 1 {
-                        Text("Эта тема требует больше внимания").font(.caption2).foregroundStyle(.orange)
+                        Text("Эта тема требует больше внимания").font(.callout).foregroundStyle(.orange)
                     }
                     if !s.topProblems.isEmpty {
                         Text("Сложное: " + s.topProblems.map(\.title).joined(separator: ", "))
-                            .font(.caption2).foregroundStyle(.red).lineLimit(2)
+                            .font(.callout).foregroundStyle(.red).lineLimit(2)
                     }
                 }
+                .padding(.vertical, 8)
             }
         }
         .navigationTitle(section)
@@ -70,13 +72,14 @@ struct TopicView: View {
         List(list) { f in
             NavigationLink { FormulaDetailView(formula: f) } label: {
                 HStack {
-                    VStack(alignment: .leading) {
-                        Text(f.title).font(.subheadline)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(f.title).font(.headline)
                         LevelStars(level: store.prog(f.id).level)
                     }
                     Spacer()
                     StatusBadge(status: store.prog(f.id).status)
                 }
+                .padding(.vertical, 8)
             }
         }
         .navigationTitle(topic)
@@ -109,26 +112,26 @@ struct FormulaDetailView: View {
                     Spacer()
                     LevelStars(level: p.level)
                 }
-                Text(formula.title).font(.title2).bold()
-                LatexView(latex: formula.latex, fontSize: 24)
+                Text(formula.title).font(.title).bold()
+                LatexView(latex: formula.latex, fontSize: 28)
                 if !formula.symbols.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Обозначения").font(.headline)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Обозначения").font(.title3).bold()
                         ForEach(formula.symbols.sorted(by: { $0.key < $1.key }), id: \.key) { k, v in
                             HStack {
-                                Text(k).font(.body.monospaced()).frame(minWidth: 60, alignment: .leading)
-                                Text(v.meaning).font(.subheadline)
+                                Text(k).font(.title3.monospaced()).frame(minWidth: 70, alignment: .leading)
+                                Text(v.meaning).font(.body)
                                 Spacer()
-                                Text(v.unit).font(.caption).foregroundStyle(.secondary)
+                                Text(v.unit).font(.callout).foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, 4)
                         }
                     }
                 }
                 Text(formula.description).font(.body).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Мнемоника").font(.headline)
-                    Text(formula.mnemonic).font(.callout)
+                    Text("Мнемоника").font(.title3).bold()
+                    Text(formula.mnemonic).font(.body)
                         .padding().background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.12)))
                 }
                 statsBlock
@@ -136,6 +139,7 @@ struct FormulaDetailView: View {
                     session = TrainingSession(formulas: [formula], mode: .mixed)
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
             .padding()
         }

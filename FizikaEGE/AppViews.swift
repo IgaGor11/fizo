@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 @main
 struct FizikaEGEApp: App {
@@ -60,7 +60,7 @@ struct HomeView: View {
                 }
                 .padding()
             }
-            .navigationTitle("EzyFizi")
+            .navigationTitle("EasyFizi")
             .sheet(isPresented: $showFlow) {
                 StartTrainingView().environmentObject(store)
             }

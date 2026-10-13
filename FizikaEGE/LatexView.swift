@@ -37,7 +37,7 @@ enum MathParser {
         "delta": "δ", "Delta": "Δ", "varepsilon": "ε", "epsilon": "ϵ",
         "zeta": "ζ", "eta": "η", "theta": "θ", "lambda": "λ",
         "mu": "μ", "nu": "ν", "pi": "π", "rho": "ρ",
-        "sigma": "σ", "Phi": "Φ", "phi": "φ", "varphi": "φ",
+        "sigma": "σ", "tau": "τ", "Phi": "Φ", "phi": "φ", "varphi": "φ",
         "omega": "ω", "Omega": "Ω"
     ]
     static let symbols: [String: String] = [
@@ -86,6 +86,9 @@ private final class LatexCursor {
                 case "vec":
                     let v = parseArg()
                     nodes.append(.group([v, .text("⃗")])) // стрелка поверх (combining)
+                case "bar":
+                    let b = parseArg()
+                    nodes.append(.group([b, .text("̄")])) // черта сверху (combining macron)
                 case "text", "mathrm", "textup":
                     nodes.append(.text(collectArg()))
                 case "mathcal":
@@ -137,6 +140,7 @@ private final class LatexCursor {
             if let g = MathParser.greek[name] { return .text(g) }
             if let sym = MathParser.symbols[name] { return .text(sym) }
             if name == "vec" { return .group([parseArg(), .text("⃗")]) }
+            if name == "bar" { return .group([parseArg(), .text("̄")]) }
             if name == "mathcal" {
                 let s = collectArg()
                 return .text(s == "E" ? "ℰ" : s)

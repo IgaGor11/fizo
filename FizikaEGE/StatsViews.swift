@@ -5,8 +5,6 @@ import Charts
 
 struct StatsView: View {
     @EnvironmentObject var store: ProgressStore
-    @State private var reportURL: URL?
-    @State private var showShare = false
 
     var body: some View {
         NavigationStack {
@@ -16,21 +14,18 @@ struct StatsView: View {
                     heatmapCard
                     sectionsCard
                     problemsCard
-                    Button("Сформировать отчёт для учителя") {
-                        reportURL = TeacherReport.makePDF(store: store)
-                        showShare = reportURL != nil
-                        Haptics.success()
+                    NavigationLink {
+                        ReportView().environmentObject(store)
+                    } label: {
+                        Label("Отчёт для учителя", systemImage: "doc.text.fill")
+                            .font(.title3)
+                            .frame(maxWidth: .infinity, minHeight: 56)
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .padding()
             }
             .navigationTitle("Статистика")
-            .sheet(isPresented: $showShare) {
-                if let url = reportURL {
-                    ShareSheet(url: url)
-                }
-            }
         }
     }
 
@@ -199,10 +194,100 @@ struct HeatmapView: View {
     }
 }
 
-struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+// MARK: - Отчёт для учителя: экран + экспорт PDF
+struct ReportView: View {
+    @EnvironmentObject var store: ProgressStore
+    @State private var pdfURL: URL?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Отчёт о подготовке к ЕГЭ по физике")
+                    .font(.title2).bold()
+                let name = store.studentName.isEmpty ? "Ученик" : store.studentName
+                Text("\(name) · \(Date().formatted(date: .long, time: .omitted)) · физика, ЕГЭ (ФИПИ 2026)")
+                    .font(.callout).foregroundStyle(.secondary)
+
+                reportSection("Общий прогресс") {
+                    Text("Выучено: \(store.learnedCount)/\(store.totalCount) (\(Int(store.progressFraction * 100))%)")
+                    Text("Средний уровень: \(String(format: "%.1f", store.avgLevel)) · Точность: \(Int(store.overallAccuracy * 100))%")
+                    Text("Streak: \(store.streakDays) дн. · XP: \(store.xp) (\(store.userRank))")
+                }
+
+                reportSection("По разделам") {
+                    ForEach(FormulasBundle.sectionsOrder, id: \.self) { sec in
+                        let s = store.stats(section: sec)
+                        Text("\(sec): \(Int(s.fraction * 100))% · уровень \(String(format: "%.1f", s.avgLevel)) · проблемных: \(s.problems)")
+                    }
+                }
+
+                reportSection("По темам") {
+                    ForEach(allTopics, id: \.self) { t in
+                        let s = store.stats(topic: t)
+                        let mark = s.fraction >= 0.8 ? "Освоено" : (s.fraction >= 0.4 ? "В процессе" : "Требует внимания")
+                        Text("\(t): \(Int(s.fraction * 100))% · \(mark)")
+                    }
+                }
+
+                reportSection("Топ проблемных формул") {
+                    if store.topProblems.isEmpty {
+                        Text("Пока нет данных — начните тренировки.")
+                    }
+                    ForEach(store.topProblems, id: \.id) { f in
+                        let p = store.prog(f.id)
+                        Text("• \(f.title) — уровень \(p.level), точность \(Int(p.accuracy * 100))%")
+                    }
+                }
+
+                reportSection("Топ сильных формул") {
+                    ForEach(store.topStrong, id: \.id) { f in
+                        let p = store.prog(f.id)
+                        Text("• \(f.title) — уровень \(p.level), точность \(Int(p.accuracy * 100))%")
+                    }
+                }
+
+                reportSection("Рекомендации") {
+                    ForEach(TeacherReport.recommendations(store: store), id: \.self) { r in
+                        Text("• \(r)")
+                    }
+                }
+
+                Text("Шкала: 1–3 «Не освоено», 4–6 «Частично освоено», 7–8 «Освоено», 9–10 «Отлично».")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                if let url = pdfURL {
+                    ShareLink(item: url) {
+                        Label("Отправить PDF (AirDrop, Mail, Telegram)", systemImage: "square.and.arrow.up")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 56)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Отчёт для учителя")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if pdfURL == nil {
+                pdfURL = TeacherReport.makePDF(store: store)
+                Haptics.success()
+            }
+        }
     }
-    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+
+    private var allTopics: [String] {
+        Array(Set(store.formulas.map(\.topic))).sorted()
+    }
+
+    @ViewBuilder
+    private func reportSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.title3).bold()
+            content().font(.body)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.08)))
+    }
 }

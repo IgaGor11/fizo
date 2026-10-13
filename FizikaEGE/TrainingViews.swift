@@ -49,47 +49,22 @@ struct TrainingScope: Hashable {
 struct StartTrainingView: View {
     @EnvironmentObject var store: ProgressStore
     @Environment(\.dismiss) var dismiss
+    @State private var pickedSection: String?
     @State private var scope: TrainingScope?
     @State private var session: TrainingSession?
 
+    var topicsInSection: [String] {
+        guard let sec = pickedSection else { return [] }
+        var seen: [String] = []
+        for f in store.formulas where f.section == sec {
+            if !seen.contains(f.topic) { seen.append(f.topic) }
+        }
+        return seen
+    }
+
     var body: some View {
         NavigationStack {
-            if scope == nil {
-                List {
-                    Section {
-                        Button {
-                            Haptics.tap()
-                            scope = TrainingScope(title: "Итоговый зачёт", formulas: store.formulas)
-                        } label: {
-                            HStack {
-                                Image(systemName: "trophy.fill").foregroundStyle(.yellow)
-                                Text("Итоговый зачёт").font(.headline)
-                                Spacer()
-                                Text("все разделы").font(.caption).foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 8)
-                        }
-                    }
-                    Section("Разделы") {
-                        ForEach(FormulasBundle.sectionsOrder, id: \.self) { sec in
-                            let list = store.formulas.filter { $0.section == sec }
-                            let due = store.dueFormulas(scope: list).count
-                            Button {
-                                Haptics.tap()
-                                scope = TrainingScope(title: sec, formulas: list)
-                            } label: {
-                                HStack {
-                                    Text(sec).font(.headline)
-                                    Spacer()
-                                    Text("к повторению: \(due)").font(.caption).foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 8)
-                            }
-                        }
-                    }
-                }
-                .navigationTitle("Что тренируем?")
-            } else {
+            if scope != nil {
                 ScrollView {
                     VStack(spacing: 12) {
                         ForEach(SessionMode.allCases) { m in
@@ -104,9 +79,87 @@ struct StartTrainingView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Разделы") { scope = nil }
+                        Button("Назад") { scope = nil }
                     }
                 }
+            } else if let sec = pickedSection {
+                List {
+                    Section {
+                        Button {
+                            Haptics.tap()
+                            let list = store.formulas.filter { $0.section == sec }
+                            scope = TrainingScope(title: sec, formulas: list)
+                        } label: {
+                            HStack {
+                                Image(systemName: "books.vertical.fill").foregroundStyle(.blue)
+                                Text("Весь раздел").font(.title3).bold()
+                                Spacer()
+                                Text("\(store.formulas.filter { $0.section == sec }.count) формул")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    Section("Подразделы") {
+                        ForEach(topicsInSection, id: \.self) { topic in
+                            let list = store.formulas.filter { $0.topic == topic }
+                            let due = store.dueFormulas(scope: list).count
+                            Button {
+                                Haptics.tap()
+                                scope = TrainingScope(title: topic, formulas: list)
+                            } label: {
+                                HStack {
+                                    Text(topic).font(.headline)
+                                    Spacer()
+                                    Text("к повторению: \(due)").font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle(sec)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Разделы") { pickedSection = nil }
+                    }
+                }
+            } else {
+                List {
+                    Section {
+                        Button {
+                            Haptics.tap()
+                            scope = TrainingScope(title: "Итоговый зачёт", formulas: store.formulas)
+                        } label: {
+                            HStack {
+                                Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+                                Text("Итоговый зачёт").font(.title3).bold()
+                                Spacer()
+                                Text("все разделы").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    Section("Разделы") {
+                        ForEach(FormulasBundle.sectionsOrder, id: \.self) { sec in
+                            let list = store.formulas.filter { $0.section == sec }
+                            let due = store.dueFormulas(scope: list).count
+                            Button {
+                                Haptics.tap()
+                                pickedSection = sec
+                            } label: {
+                                HStack {
+                                    Text(sec).font(.headline)
+                                    Spacer()
+                                    Text("к повторению: \(due)").font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Что тренируем?")
             }
         }
         .fullScreenCover(item: $session) { s in
@@ -160,21 +213,24 @@ struct TrainingHost: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
+            VStack(spacing: 8) {
                 if done {
                     sessionSummary
                 } else if index < session.formulas.count {
                     let f = session.formulas[index]
+                    Text("Карточка \(index + 1) из \(session.formulas.count)")
+                        .font(.headline).foregroundStyle(.secondary)
+                    ScrollView {
+                        currentCard(f)
+                            .onAppear {
+                                effectiveMode = resolveMode(for: f)
+                                cardStart = Date()
+                            }
+                            .id(f.id)
+                    }
                     ProgressView(value: Double(index) / Double(session.formulas.count))
                         .padding(.horizontal)
-                    Text("Карточка \(index + 1) из \(session.formulas.count)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    currentCard(f)
-                        .onAppear {
-                            effectiveMode = resolveMode(for: f)
-                            cardStart = Date()
-                        }
-                        .id(f.id)
+                        .padding(.bottom, 4)
                 }
             }
             .navigationTitle(session.mode.title)
@@ -258,7 +314,7 @@ struct FlashcardTrain: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(formula.title).font(.headline).multilineTextAlignment(.center)
+            Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
             if !flipped {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.secondary.opacity(0.12))
@@ -271,9 +327,22 @@ struct FlashcardTrain: View {
                     )
                     .onTapGesture { withAnimation { flipped = true }; Haptics.tap() }
             } else {
-                LatexView(latex: formula.latex, fontSize: 24)
+                LatexView(latex: formula.latex, fontSize: 28)
                     .rotation3DEffect(.degrees(flipped ? 0 : 90), axis: (x: 0, y: 1, z: 0))
-                Text("Насколько хорошо вспомнили?").font(.subheadline).foregroundStyle(.secondary)
+                // Информация о формуле, как в каталоге
+                VStack(alignment: .leading, spacing: 6) {
+                    if !formula.symbols.isEmpty {
+                        ForEach(formula.symbols.sorted(by: { $0.key < $1.key }), id: \.key) { k, v in
+                            Text("\(k) — \(v.meaning), \(v.unit)")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(formula.mnemonic).font(.callout)
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.12)))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Насколько хорошо вспомнили?").font(.headline).foregroundStyle(.secondary)
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
                         GradeButton("Не помню", color: .red) { onGrade(1) }
@@ -315,8 +384,9 @@ struct ChoiceTrain: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("Какое название у формулы?").font(.subheadline).foregroundStyle(.secondary)
-            LatexView(latex: formula.latex, fontSize: 24)
+            Text("Какое название у формулы?").font(.headline).foregroundStyle(.secondary)
+            // Показываем формулу БЕЗ левой части: чему она равна — угадывает ученик
+            LatexView(latex: ProgressStore.displayFormula(formula.latex), fontSize: 28)
             ForEach(options) { o in
                 Button {
                     picked = o.id
@@ -326,7 +396,12 @@ struct ChoiceTrain: View {
                     }
                 } label: {
                     HStack {
-                        Text(o.title).font(.title3).multilineTextAlignment(.leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(o.title).font(.title3).multilineTextAlignment(.leading)
+                            // Обозначение-символ рядом с названием
+                            MiniLatex(latex: ProgressStore.symbolOf(o.latex), fontSize: 17)
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                         if picked == o.id {
                             Image(systemName: o.id == formula.id ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -335,7 +410,7 @@ struct ChoiceTrain: View {
                         }
                     }
                     .padding(18)
-                    .frame(minHeight: 64)
+                    .frame(minHeight: 72)
                     .background(bg(for: o))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
@@ -369,8 +444,14 @@ struct InputTrain: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text(formula.title).font(.headline).multilineTextAlignment(.center)
-            Text("Введите формулу — поможет клавиатура ниже").font(.caption).foregroundStyle(.secondary)
+            Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
+            // Живой красивый предпросмотр того, что набираете
+            if !input.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                MiniLatex(latex: input.text, fontSize: 24)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.green.opacity(0.1)))
+            }
             FormulaTextField(input: input)
             FormulaKeyboard(input: input)
             if let v = verdict {
@@ -396,6 +477,11 @@ struct InputTrain: View {
             }
         }
         .padding()
+    }
+    .onAppear {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            input.field?.becomeFirstResponder()
+        }
     }
 }
 
@@ -448,11 +534,13 @@ struct FormulaTextField: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextField {
         let f = UITextField()
-        f.placeholder = "Ваш ответ…"
+        f.placeholder = "Набирайте на клавиатуре ниже…"
         f.font = .monospacedSystemFont(ofSize: 18, weight: .regular)
         f.borderStyle = .roundedRect
         f.autocapitalizationType = .none
         f.autocorrectionType = .no
+        // Только наша клавиатура: системную не показываем, поле нужно для курсора
+        f.inputView = UIView()
         f.addTarget(context.coordinator, action: #selector(Coord.edited(_:)), for: .editingChanged)
         input.field = f
         return f
@@ -490,7 +578,7 @@ struct FormulaKeyboard: View {
         [.init("7"), .init("8"), .init("9"), .init("+"), .init("−", insert: "-"), .init("×", insert: "*")],
         [.init("4"), .init("5"), .init("6"), .init("("), .init(")"), .init("÷", insert: "/")],
         [.init("1"), .init("2"), .init("3"), .init("="), .init("."), .init("±", insert: "\\pm ")],
-        [.init("0"), .init("x"), .init("t"), .init("·", insert: "\\cdot "), .init("⌫")]
+        [.init("0"), .init("x"), .init("y"), .init("t"), .init("·", insert: "\\cdot "), .init("⌫")]
     ]
     private let greek: [[FormulaKey]] = [
         [.init("α", insert: "\\alpha "), .init("β", insert: "\\beta "), .init("γ", insert: "\\gamma "), .init("Δ", insert: "\\Delta "), .init("δ", insert: "\\delta ")],
@@ -557,37 +645,48 @@ struct KeyStyle: ButtonStyle {
 struct BuildTrain: View {
     let formula: Formula
     let onResult: (Bool) -> Void
-    @State private var shuffled: [String] = []
+    @State private var shuffled: [ProgressStore.BuildToken] = []
     @State private var picked: [Int] = []
     @State private var verdict: Bool?
 
-    var assembled: String { picked.map { shuffled[$0] }.joined(separator: " ") }
+    var assembled: String { picked.map { shuffled[$0].code }.joined(separator: " ") }
 
     var body: some View {
         VStack(spacing: 12) {
-            Text(formula.title).font(.headline).multilineTextAlignment(.center)
-            Text("Соберите формулу из блоков по порядку").font(.caption).foregroundStyle(.secondary)
-            WrapChips(texts: picked.map { shuffled[$0] }, color: .blue) { idx in
+            Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
+            Text("Соберите формулу из блоков по порядку").font(.callout).foregroundStyle(.secondary)
+            // Собранное — сразу красиво
+            if !picked.isEmpty {
+                MiniLatex(latex: assembled, fontSize: 24)
+                    .frame(maxWidth: .infinity, minHeight: 70)
+                    .padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue.opacity(0.1)))
+            }
+            WrapChips(texts: picked.map { shuffled[$0].display }, color: .blue) { idx in
                 picked.remove(at: idx); verdict = nil
             }
-            .frame(minHeight: 60)
-            .padding(8)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.1)))
+            .frame(minHeight: 64)
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.1)))
             if let v = verdict {
                 Text(v ? "Верно! ✅" : "Попробуйте ещё или пропустите")
+                    .font(.title3)
                     .foregroundStyle(v ? .green : .orange).bold()
-                if !v { LatexView(latex: formula.latex, fontSize: 20) }
+                if !v { LatexView(latex: formula.latex, fontSize: 24) }
                 HStack {
                     if !v {
                         Button("Ещё раз") { picked = []; verdict = nil }
+                            .controlSize(.large)
                     }
                     Button(v ? "Дальше" : "Пропустить (не засчитано)") { onResult(v) }
                         .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                 }
             } else {
                 WrapChips(texts: availableTexts, color: .gray) { idx in
                     picked.append(availableIndices[idx]); Haptics.tap()
                 }
+                .frame(minHeight: 120)
                 Button("Проверить") {
                     let ok = ProgressStore.checkInput(assembled, target: formula.latex)
                     verdict = ok
@@ -600,14 +699,14 @@ struct BuildTrain: View {
         }
         .padding()
         .onAppear {
-            shuffled = ProgressStore.tokens(for: formula.latex).shuffled()
+            shuffled = ProgressStore.buildTokens(for: formula.latex).shuffled()
         }
     }
 
     private var availableIndices: [Int] {
         shuffled.indices.filter { !picked.contains($0) }
     }
-    private var availableTexts: [String] { availableIndices.map { shuffled[$0] } }
+    private var availableTexts: [String] { availableIndices.map { shuffled[$0].display } }
 }
 
 struct WrapChips: View {
@@ -618,8 +717,8 @@ struct WrapChips: View {
         FlexibleWrap {
             ForEach(texts.indices, id: \.self) { i in
                 Button(texts[i]) { onTap(i) }
-                    .font(.body.monospaced())
-                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .font(.title2.monospaced())
+                    .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(color.opacity(0.2))
                     .clipShape(Capsule())
             }
@@ -632,10 +731,8 @@ struct FlexibleWrap<Content: View>: View {
     let content: () -> Content
     init(@ViewBuilder content: @escaping () -> Content) { self.content = content }
     var body: some View {
-        // Упрощённо: вертикальный стек с переносом через LazyVGrid недостаточно гибок,
-        // поэтому используем VStack из HStack-строк через GeometryReader-free подход:
-        // SwiftUI-нативный WrappingHStack недоступен — эмулируем через ScrollView + LazyVGrid adaptive.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64))], spacing: 8) {
+        // SwiftUI-нативного переноса строк нет — эмулируем через LazyVGrid adaptive.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 84))], spacing: 10) {
             content()
         }
     }
