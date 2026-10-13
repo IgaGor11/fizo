@@ -378,7 +378,7 @@ final class ProgressStore: ObservableObject {
             if !s.trimmingCharacters(in: .whitespaces).isEmpty { out.append(s) }
         }
         func emitAll(_ innerLatex: String) {
-            out.append(contentsOf: buildTokens(innerLatex))
+            out.append(contentsOf: buildTokens(for: innerLatex))
         }
         while i < chars.count {
             let c = chars[i]
