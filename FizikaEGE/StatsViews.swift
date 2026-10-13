@@ -194,61 +194,109 @@ struct HeatmapView: View {
     }
 }
 
-// MARK: - Отчёт для учителя: экран + экспорт PDF
+// MARK: - Отчёт для учителя: сухие факты и графики
 struct ReportView: View {
     @EnvironmentObject var store: ProgressStore
     @State private var pdfURL: URL?
 
+    private let shortSections = [
+        "Механика": "Механика",
+        "МКТ и термодинамика": "МКТ",
+        "Электродинамика": "Электродинамика",
+        "Оптика": "Оптика",
+        "Квантовая физика": "Квантовая"
+    ]
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Отчёт о подготовке к ЕГЭ по физике")
-                    .font(.title2).bold()
-                let name = store.studentName.isEmpty ? "Ученик" : store.studentName
-                Text("\(name) · \(Date().formatted(date: .long, time: .omitted)) · физика, ЕГЭ (ФИПИ 2026)")
-                    .font(.callout).foregroundStyle(.secondary)
-
-                reportSection("Общий прогресс") {
-                    Text("Выучено: \(store.learnedCount)/\(store.totalCount) (\(Int(store.progressFraction * 100))%)")
-                    Text("Средний уровень: \(String(format: "%.1f", store.avgLevel)) · Точность: \(Int(store.overallAccuracy * 100))%")
-                    Text("Streak: \(store.streakDays) дн. · XP: \(store.xp) (\(store.userRank))")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Отчёт о подготовке").font(.title).bold()
+                    Text("ЕГЭ по физике · кодификатор ФИПИ 2026").font(.callout).foregroundStyle(.secondary)
+                    let name = store.studentName.isEmpty ? "Ученик" : store.studentName
+                    Text("\(name) · \(Date().formatted(date: .long, time: .omitted))")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
 
-                reportSection("По разделам") {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    StatTile(title: "Выучено", value: "\(Int(store.progressFraction * 100))%")
+                    StatTile(title: "Средний уровень", value: String(format: "%.1f", store.avgLevel))
+                    StatTile(title: "Точность", value: "\(Int(store.overallAccuracy * 100))%")
+                    StatTile(title: "Streak", value: "\(store.streakDays) дн.")
+                }
+
+                reportCard("Освоение разделов") {
+                    Chart(FormulasBundle.sectionsOrder, id: \.self) { sec in
+                        let s = store.stats(section: sec)
+                        BarMark(
+                            x: .value("Раздел", shortSections[sec] ?? sec),
+                            y: .value("%", Int(s.fraction * 100))
+                        )
+                        .foregroundStyle(s.fraction >= 0.8 ? .green : .blue)
+                    }
+                    .chartYScale(domain: 0...100)
+                    .frame(height: 170)
+                }
+
+                reportCard("Активность за 30 дней") {
+                    Chart(last30, id: \.date) { d in
+                        BarMark(x: .value("День", d.date, unit: .day), y: .value("Ответы", d.answers))
+                            .foregroundStyle(.blue)
+                    }
+                    .frame(height: 120)
+                }
+
+                reportCard("Разделы") {
                     ForEach(FormulasBundle.sectionsOrder, id: \.self) { sec in
                         let s = store.stats(section: sec)
-                        Text("\(sec): \(Int(s.fraction * 100))% · уровень \(String(format: "%.1f", s.avgLevel)) · проблемных: \(s.problems)")
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(sec).font(.body)
+                                Spacer()
+                                Text("\(Int(s.fraction * 100))%").font(.body).bold()
+                            }
+                            ProgressView(value: s.fraction)
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
 
-                reportSection("По темам") {
+                reportCard("Темы") {
                     ForEach(allTopics, id: \.self) { t in
                         let s = store.stats(topic: t)
-                        let mark = s.fraction >= 0.8 ? "Освоено" : (s.fraction >= 0.4 ? "В процессе" : "Требует внимания")
-                        Text("\(t): \(Int(s.fraction * 100))% · \(mark)")
+                        HStack {
+                            Text(t).font(.callout)
+                            Spacer()
+                            Text("\(Int(s.fraction * 100))%").font(.callout).bold()
+                        }
+                        .padding(.vertical, 2)
                     }
                 }
 
-                reportSection("Топ проблемных формул") {
+                reportCard("Топ-5 проблемных") {
                     if store.topProblems.isEmpty {
-                        Text("Пока нет данных — начните тренировки.")
+                        Text("Нет данных — начните тренировки.").font(.callout)
                     }
-                    ForEach(store.topProblems, id: \.id) { f in
+                    ForEach(Array(store.topProblems.prefix(5)), id: \.id) { f in
                         let p = store.prog(f.id)
-                        Text("• \(f.title) — уровень \(p.level), точность \(Int(p.accuracy * 100))%")
+                        HStack {
+                            Text(f.title).font(.callout).lineLimit(1)
+                            Spacer()
+                            Text("\(Int(p.accuracy * 100))%").font(.callout).bold().foregroundStyle(.red)
+                        }
+                        .padding(.vertical, 2)
                     }
                 }
 
-                reportSection("Топ сильных формул") {
-                    ForEach(store.topStrong, id: \.id) { f in
+                reportCard("Топ-5 сильных") {
+                    ForEach(Array(store.topStrong.prefix(5)), id: \.id) { f in
                         let p = store.prog(f.id)
-                        Text("• \(f.title) — уровень \(p.level), точность \(Int(p.accuracy * 100))%")
-                    }
-                }
-
-                reportSection("Рекомендации") {
-                    ForEach(TeacherReport.recommendations(store: store), id: \.self) { r in
-                        Text("• \(r)")
+                        HStack {
+                            Text(f.title).font(.callout).lineLimit(1)
+                            Spacer()
+                            Text("\(Int(p.accuracy * 100))%").font(.callout).bold().foregroundStyle(.green)
+                        }
+                        .padding(.vertical, 2)
                     }
                 }
 
@@ -257,7 +305,7 @@ struct ReportView: View {
 
                 if let url = pdfURL {
                     ShareLink(item: url) {
-                        Label("Отправить PDF (AirDrop, Mail, Telegram)", systemImage: "square.and.arrow.up")
+                        Label("Отправить PDF", systemImage: "square.and.arrow.up")
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 56)
                     }
@@ -280,14 +328,22 @@ struct ReportView: View {
         Array(Set(store.formulas.map(\.topic))).sorted()
     }
 
+    private var last30: [DayActivity] {
+        let cal = Calendar.current
+        let days = (0..<30).compactMap { cal.date(byAdding: .day, value: -$0, to: cal.startOfDay(for: Date())) }
+        return days.reversed().map { d in
+            store.activity.first(where: { cal.isDate($0.date, inSameDayAs: d) }) ?? DayActivity(date: d, answers: 0, seconds: 0)
+        }
+    }
+
     @ViewBuilder
-    private func reportSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func reportCard<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.title3).bold()
-            content().font(.body)
+            content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.08)))
     }
 }

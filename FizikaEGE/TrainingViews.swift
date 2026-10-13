@@ -333,8 +333,11 @@ struct FlashcardTrain: View {
                 VStack(alignment: .leading, spacing: 6) {
                     if !formula.symbols.isEmpty {
                         ForEach(formula.symbols.sorted(by: { $0.key < $1.key }), id: \.key) { k, v in
-                            Text("\(k) — \(v.meaning), \(v.unit)")
-                                .font(.callout).foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                MiniLatex(latex: k, fontSize: 17)
+                                Text("— \(v.meaning), \(v.unit)")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     Text(formula.mnemonic).font(.callout)
@@ -447,10 +450,7 @@ struct InputTrain: View {
             Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
             // Живой красивый предпросмотр того, что набираете
             if !input.text.trimmingCharacters(in: .whitespaces).isEmpty {
-                MiniLatex(latex: input.text, fontSize: 24)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.green.opacity(0.1)))
+                LatexView(latex: input.text, fontSize: 24)
             }
             FormulaTextField(input: input)
             FormulaKeyboard(input: input)
@@ -573,6 +573,7 @@ struct FormulaKey: Hashable {
 struct FormulaKeyboard: View {
     @ObservedObject var input: FormulaInput
     @State private var page = 0
+    @State private var upper = false
 
     private let digits: [[FormulaKey]] = [
         [.init("7"), .init("8"), .init("9"), .init("+"), .init("−", insert: "-"), .init("×", insert: "*")],
@@ -591,27 +592,28 @@ struct FormulaKeyboard: View {
         [.init("√", insert: "\\sqrt{}", backBy: 1), .init("⃗", insert: "\\vec{}", backBy: 1), .init("sin", insert: "\\sin ")],
         [.init("cos", insert: "\\cos "), .init("Δx", insert: "\\Delta "), .init("⌫")]
     ]
+    private let abcLetters = ["A","B","C","D","E","F","G","H","I","J","K","L","M",
+                              "N","O","P","Q","R","S","T","U","V","W","X","Y","Z"]
 
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
                 PageTab("123", index: 0)
                 PageTab("αβ", index: 1)
-                PageTab("fx", index: 2)
+                PageTab("Aa", index: 2)
+                PageTab("fx", index: 3)
                 Spacer()
                 Button("Очистить") { input.text = ""; input.field?.text = "" }
                     .font(.caption)
             }
-            let rows = page == 0 ? digits : (page == 1 ? greek : latex)
-            ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 6) {
-                    ForEach(rows[r], id: \.self) { k in
-                        if k.title == "⌫" {
-                            Button("⌫") { input.backspace() }
-                                .buttonStyle(KeyStyle())
-                        } else {
-                            Button(k.title) { input.insert(k.insert, backBy: k.backBy) }
-                                .buttonStyle(KeyStyle())
+            if page == 2 {
+                abcRows
+            } else {
+                let rows = page == 0 ? digits : (page == 1 ? greek : latex)
+                ForEach(rows.indices, id: \.self) { r in
+                    HStack(spacing: 6) {
+                        ForEach(rows[r], id: \.self) { k in
+                            keyButton(k)
                         }
                     }
                 }
@@ -619,6 +621,40 @@ struct FormulaKeyboard: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.1)))
+    }
+
+    private var abcRows: some View {
+        VStack(spacing: 6) {
+            ForEach(0..<4, id: \.self) { r in
+                HStack(spacing: 6) {
+                    ForEach(abcLetters[r * 7..<min(r * 7 + 7, abcLetters.count)], id: \.self) { l in
+                        let t = upper ? l : l.lowercased()
+                        Button(t) { input.insert(t) }
+                            .buttonStyle(KeyStyle())
+                    }
+                }
+            }
+            HStack(spacing: 6) {
+                Button(upper ? "АБВ…" : "абв…") { upper.toggle(); Haptics.tap() }
+                    .font(.caption).bold()
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Color.accentColor.opacity(upper ? 0.4 : 0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Button("⌫") { input.backspace() }
+                    .buttonStyle(KeyStyle())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func keyButton(_ k: FormulaKey) -> some View {
+        if k.title == "⌫" {
+            Button("⌫") { input.backspace() }
+                .buttonStyle(KeyStyle())
+        } else {
+            Button(k.title) { input.insert(k.insert, backBy: k.backBy) }
+                .buttonStyle(KeyStyle())
+        }
     }
 
     @ViewBuilder
@@ -645,11 +681,12 @@ struct KeyStyle: ButtonStyle {
 struct BuildTrain: View {
     let formula: Formula
     let onResult: (Bool) -> Void
-    @State private var shuffled: [ProgressStore.BuildToken] = []
+    @State private var shuffled: [String] = []
+    @State private var canonical: String = ""
     @State private var picked: [Int] = []
     @State private var verdict: Bool?
 
-    var assembled: String { picked.map { shuffled[$0].code }.joined(separator: " ") }
+    var assembled: String { picked.map { shuffled[$0] }.joined(separator: " ") }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -657,12 +694,9 @@ struct BuildTrain: View {
             Text("Соберите формулу из блоков по порядку").font(.callout).foregroundStyle(.secondary)
             // Собранное — сразу красиво
             if !picked.isEmpty {
-                MiniLatex(latex: assembled, fontSize: 24)
-                    .frame(maxWidth: .infinity, minHeight: 70)
-                    .padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue.opacity(0.1)))
+                LatexView(latex: assembled, fontSize: 24)
             }
-            WrapChips(texts: picked.map { shuffled[$0].display }, color: .blue) { idx in
+            WrapChips(texts: picked.map { shuffled[$0] }, color: .blue) { idx in
                 picked.remove(at: idx); verdict = nil
             }
             .frame(minHeight: 64)
@@ -686,9 +720,9 @@ struct BuildTrain: View {
                 WrapChips(texts: availableTexts, color: .gray) { idx in
                     picked.append(availableIndices[idx]); Haptics.tap()
                 }
-                .frame(minHeight: 120)
+                .frame(minHeight: 140)
                 Button("Проверить") {
-                    let ok = ProgressStore.checkInput(assembled, target: formula.latex)
+                    let ok = !assembled.isEmpty && assembled == canonical
                     verdict = ok
                     if ok { Haptics.success() } else { Haptics.error() }
                 }
@@ -699,14 +733,16 @@ struct BuildTrain: View {
         }
         .padding()
         .onAppear {
-            shuffled = ProgressStore.buildTokens(for: formula.latex).shuffled()
+            let tokens = ProgressStore.buildTokens(for: formula.latex)
+            canonical = tokens.joined(separator: " ")
+            shuffled = tokens.shuffled()
         }
     }
 
     private var availableIndices: [Int] {
         shuffled.indices.filter { !picked.contains($0) }
     }
-    private var availableTexts: [String] { availableIndices.map { shuffled[$0].display } }
+    private var availableTexts: [String] { availableIndices.map { shuffled[$0] } }
 }
 
 struct WrapChips: View {

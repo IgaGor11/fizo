@@ -12,12 +12,17 @@ struct LatexView: View {
     var fontSize: CGFloat = 22
 
     var body: some View {
-        MiniLatex(latex: latex, fontSize: fontSize)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 6)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.12)))
-            .accessibilityLabel("Формула: \(latex)")
+        // Длинные формулы не переносим, а уменьшаем — в одну строку
+        ViewThatFits(in: .horizontal) {
+            MiniLatex(latex: latex, fontSize: fontSize)
+            MiniLatex(latex: latex, fontSize: fontSize * 0.78)
+            MiniLatex(latex: latex, fontSize: fontSize * 0.6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.12)))
+        .accessibilityLabel("Формула: \(latex)")
     }
 }
 

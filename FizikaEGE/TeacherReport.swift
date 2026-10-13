@@ -61,7 +61,7 @@ enum TeacherReport {
                 if store.topProblems.isEmpty { draw("— нет данных —", font: body) }
                 for f in store.topProblems {
                     let p = store.prog(f.id)
-                    draw("• \(f.title) (\(f.topic)) — уровень \(p.level), точность \(Int(p.accuracy * 100))%, ошибок \(p.totalAnswers - p.correctAnswers). Рекомендация: повторить в режиме ручного ввода.", font: small, gap: 2)
+                    draw("• \(f.title) (\(f.topic)) — уровень \(p.level), точность \(Int(p.accuracy * 100))%, ошибок \(p.totalAnswers - p.correctAnswers).", font: small, gap: 2)
                 }
 
                 draw("Топ-10 сильных формул", font: h1)
@@ -69,9 +69,6 @@ enum TeacherReport {
                     let p = store.prog(f.id)
                     draw("• \(f.title) — уровень \(p.level), точность \(Int(p.accuracy * 100))%.", font: small, gap: 2)
                 }
-
-                draw("Рекомендации", font: h1)
-                for r in recommendations(store: store) { draw("• \(r)", font: body, gap: 3) }
 
                 draw("Как интерпретировать уровни: 1–3 «Не освоено», 4–6 «Частично освоено», 7–8 «Освоено», 9–10 «Отлично». " +
                      "Статусы: «Выучено» (уровень ≥7 и точность ≥85%), «Проблемная» (≥4 провалов и точность <60%).", font: small)

@@ -163,13 +163,14 @@ final class ProgressStore: ObservableObject {
         formulas.filter { prog($0.id).totalAnswers == 0 }.prefix(limit).map { $0 }
     }
 
-    /// Готовый список для сессии: сначала просроченные, а если повторять
-    /// нечего — все формулы области в случайном порядке (тренировка не пустая).
-    /// Без лимита: сессия покрывает ВСЕ формулы области.
+    /// Готовый список для сессии: сначала просроченные, затем остальные
+    /// формулы области. Сессия покрывает ВСЕ формулы области.
     func sessionFormulas(scope: [Formula], limit: Int? = nil, now: Date = Date()) -> [Formula] {
         let due = dueFormulas(scope: scope, now: now)
-        if !due.isEmpty { return Array(due.prefix(limit ?? due.count)) }
-        return Array(scope.shuffled().prefix(limit ?? scope.count))
+        let dueIDs = Set(due.map(\.id))
+        let rest = scope.filter { !dueIDs.contains($0.id) }.shuffled()
+        let full = due + rest
+        return Array(full.prefix(limit ?? full.count))
     }
 
     // MARK: Adaptive Mix — выбор режима по силе памяти
@@ -287,10 +288,23 @@ final class ProgressStore: ObservableObject {
 
     // MARK: Проверка ручного ввода
     /// Толерантное сравнение LaTeX: игнор пробелов, \\cdot/\\times/*, скобок,
-    /// порядка слагаемых через «+» и «=» (слева/справа).
+    /// команд \\text, юникод-букв (Δ→\\Delta и т.п.), порядка слагаемых.
+    /// Юникод-карта: что видит человек → что лежит в эталоне.
+    static let uniMap: [String: String] = [
+        "Δ": "\\Delta", "α": "\\alpha", "β": "\\beta", "γ": "\\gamma",
+        "δ": "\\delta", "ε": "\\varepsilon", "η": "\\eta", "θ": "\\theta",
+        "λ": "\\lambda", "μ": "\\mu", "ν": "\\nu", "π": "\\pi",
+        "ρ": "\\rho", "σ": "\\sigma", "φ": "\\varphi", "ω": "\\omega",
+        "τ": "\\tau", "Σ": "\\sum", "Φ": "\\Phi", "ℰ": "\\mathcal{E}",
+        "→": "\\vec", "¯": "\\bar", "×": "*", "·": "*", "±": "\\pm", "√": "\\sqrt"
+    ]
+
     static func checkInput(_ user: String, target: String) -> Bool {
         func norm(_ s: String) -> String {
             var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            for (k, v) in uniMap { t = t.replacingOccurrences(of: k, with: v) }
+            t = t.replacingOccurrences(of: "\\text", with: "")
+            t = t.replacingOccurrences(of: "\\mathrm", with: "")
             t = t.replacingOccurrences(of: " ", with: "")
             t = t.replacingOccurrences(of: "\\cdot", with: "*")
             t = t.replacingOccurrences(of: "\\times", with: "*")
@@ -335,20 +349,36 @@ final class ProgressStore: ObservableObject {
         return latex
     }
 
-    /// Токены для режима сборки: ЧЕЛОВЕЧЕСКИЕ подписи + исходный LaTeX-код.
-    /// Никаких \frac \text \quad на экране: дроби — «⁄», команды — буквами,
-    /// скобки {} и пробелы прячем вовсе (проверка их всё равно игнорирует).
-    struct BuildToken: Hashable {
-        let display: String
-        let code: String
-    }
-
-    static func buildTokens(for latex: String) -> [BuildToken] {
-        var out: [BuildToken] = []
+    /// Блоки для режима сборки: только ЧЕЛОВЕЧЕСКИЕ знаки, никаких команд.
+    /// Дробь идёт естественным порядком: числитель, черта «⁄», знаменатель.
+    /// Проверка — точное совпадение порядка блоков с эталоном.
+    static func buildTokens(for latex: String) -> [String] {
+        var out: [String] = []
         let chars = Array(latex)
         var i = 0
-        func emit(_ display: String, _ code: String) {
-            out.append(BuildToken(display: display, code: code))
+        func skipSpaces() {
+            while i < chars.count && chars[i] == " " { i += 1 }
+        }
+        /// Читает {...} с учётом вложенности, возвращает содержимое без скобок.
+        func readGroup() -> String? {
+            skipSpaces()
+            guard i < chars.count && chars[i] == "{" else { return nil }
+            i += 1
+            var depth = 1
+            let start = i
+            while i < chars.count && depth > 0 {
+                if chars[i] == "{" { depth += 1 }
+                else if chars[i] == "}" { depth -= 1 }
+                i += 1
+            }
+            guard depth == 0 else { return nil }
+            return String(chars[start..<(i - 1)])
+        }
+        func emit(_ s: String) {
+            if !s.trimmingCharacters(in: .whitespaces).isEmpty { out.append(s) }
+        }
+        func emitAll(_ innerLatex: String) {
+            out.append(contentsOf: buildTokens(innerLatex))
         }
         while i < chars.count {
             let c = chars[i]
@@ -357,58 +387,45 @@ final class ProgressStore: ObservableObject {
                 var name = ""
                 while i < chars.count && chars[i].isLetter { name.append(chars[i]); i += 1 }
                 if name.isEmpty {
-                    if i < chars.count {
-                        let ch = String(chars[i])
-                        emit(ch, "\\" + ch); i += 1
-                    }
+                    if i < chars.count { emit(String(chars[i])); i += 1 }
                     continue
                 }
                 switch name {
-                case "frac": emit("⁄", "\\frac")
-                case "sqrt": emit("√", "\\sqrt")
-                case "vec": emit("→", "\\vec")
-                case "bar": emit("¯", "\\bar")
+                case "frac":
+                    // числитель → черта → знаменатель
+                    if let num = readGroup(), let den = readGroup() {
+                        emitAll(num)
+                        emit("⁄")
+                        emitAll(den)
+                    } else {
+                        emit("⁄")
+                    }
+                case "sqrt": emit("√")
+                case "vec": emit("→")
+                case "bar": emit("¯")
                 case "text", "mathrm":
-                    // содержимое \text{...} — обычными буквами, без команды
-                    if i < chars.count && chars[i] == "{" {
-                        i += 1
-                        while i < chars.count && chars[i] != "}" {
-                            let ch = chars[i]
-                            if ch != " " { emit(String(ch), String(ch)) }
-                            i += 1
-                        }
-                        if i < chars.count { i += 1 }
+                    if let inner = readGroup() {
+                        for ch in inner where ch != " " { emit(String(ch)) }
                     }
                 case "mathcal":
-                    if i < chars.count && chars[i] == "{" {
-                        i += 1
-                        var inner = ""
-                        while i < chars.count && chars[i] != "}" { inner.append(chars[i]); i += 1 }
-                        if i < chars.count { i += 1 }
-                        emit(inner == "E" ? "ℰ" : inner, "\\mathcal{\(inner)}")
+                    if let inner = readGroup() {
+                        emit(inner == "E" ? "ℰ" : inner)
                     } else {
-                        emit(name, "\\" + name)
+                        emit(name)
                     }
                 default:
-                    if let g = MathParser.greek[name] { emit(g, "\\" + name) }
-                    else if let s = MathParser.symbols[name] {
-                        if s.trimmingCharacters(in: .whitespaces).isEmpty {
-                            i += 0 // пробельные команды (\quad и т.п.) — пропускаем молча
-                        } else {
-                            emit(s, "\\" + name)
-                        }
-                    } else {
-                        emit(name, "\\" + name)
-                    }
+                    if let g = MathParser.greek[name] { emit(g) }
+                    else if let s = MathParser.symbols[name] { emit(s) }
+                    else { emit(name) }
                 }
             } else if c == "{" || c == "}" || c == " " || c == "&" || c == "\n" {
                 i += 1 // служебное — не показываем
             } else if c == "_" {
-                emit("˅", "_"); i += 1
+                emit("˅"); i += 1
             } else if c == "^" {
-                emit("˄", "^"); i += 1
+                emit("˄"); i += 1
             } else {
-                emit(String(c), String(c)); i += 1
+                emit(String(c)); i += 1
             }
         }
         return out

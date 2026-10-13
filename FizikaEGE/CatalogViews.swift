@@ -119,7 +119,8 @@ struct FormulaDetailView: View {
                         Text("Обозначения").font(.title3).bold()
                         ForEach(formula.symbols.sorted(by: { $0.key < $1.key }), id: \.key) { k, v in
                             HStack {
-                                Text(k).font(.title3.monospaced()).frame(minWidth: 70, alignment: .leading)
+                                MiniLatex(latex: k, fontSize: 19)
+                                    .frame(minWidth: 70, alignment: .leading)
                                 Text(v.meaning).font(.body)
                                 Spacer()
                                 Text(v.unit).font(.callout).foregroundStyle(.secondary)
