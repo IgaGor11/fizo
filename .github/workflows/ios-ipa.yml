@@ -1,0 +1,59 @@
+name: ios-ipa
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-*"
+    branches:
+      - main
+    paths:
+      - "FizikaEGE/**"
+      - "Resources/**"
+      - "project.yml"
+      - ".github/workflows/ios-ipa.yml"
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Validate formulas.json
+        run: |
+          python3 -c "import json; d=json.load(open('Resources/formulas.json')); print('formulas:', len(d)); assert len(d) > 50"
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build archive (unsigned)
+        run: |
+          xcodebuild \
+            -project FizikaEGE.xcodeproj \
+            -scheme FizikaEGE \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/FizikaEGE.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Pack unsigned IPA (Sideloadly)
+        run: |
+          APP_PATH=$(echo build/FizikaEGE.xcarchive/Products/Applications/*.app)
+          echo "App: $APP_PATH"
+          rm -rf Payload FizikaEGE-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r FizikaEGE-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: FizikaEGE-unsigned
+          path: FizikaEGE-unsigned.ipa
+          retention-days: 30

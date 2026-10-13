@@ -1,0 +1,13 @@
+# Xcode / Swift
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.ipa
+*.dSYM.zip
+*.dSYM
+.DS_Store
+# XcodeGen generated project (регенерируется в CI)
+FizikaEGE.xcodeproj/
+# локальный прогресс симулятора не коммитим

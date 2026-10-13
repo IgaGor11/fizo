@@ -1,0 +1,45 @@
+name: FizikaEGE
+options:
+  bundleIdPrefix: ru.fizika.ege
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "16.0"
+
+settings:
+  base:
+    PRODUCT_NAME: Физика ЕГЭ
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+
+targets:
+  FizikaEGE:
+    type: application
+    platform: iOS
+    bundleId: ru.fizika.ege.app
+    info:
+      path: FizikaEGE/Info.plist
+      properties:
+        CFBundleDisplayName: Физика ЕГЭ
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
+    sources:
+      - path: FizikaEGE
+        excludes:
+          - Info.plist
+    resources:
+      - Resources/formulas.json
+    scheme:
+      testTargets: []
+
+schemes:
+  FizikaEGE:
+    build:
+      targets:
+        FizikaEGE: all
+    run:
+      config: Debug
+    archive:
+      config: Release
