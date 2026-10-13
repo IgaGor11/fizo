@@ -477,10 +477,10 @@ struct InputTrain: View {
             }
         }
         .padding()
-    }
-    .onAppear {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            input.field?.becomeFirstResponder()
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                input.field?.becomeFirstResponder()
+            }
         }
     }
 }
