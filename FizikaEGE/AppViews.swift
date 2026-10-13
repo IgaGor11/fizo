@@ -161,6 +161,8 @@ struct CountChip: View {
 
 struct SettingsView: View {
     @EnvironmentObject var store: ProgressStore
+    @State private var showReset = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -172,8 +174,26 @@ struct SettingsView: View {
                     LabeledContent("Алгоритм", value: "FSRS + уровни 1–10")
                     LabeledContent("Режим", value: "Полностью офлайн")
                 }
+                Section("Данные") {
+                    Button("Сбросить весь прогресс", role: .destructive) {
+                        showReset = true
+                    }
+                }
             }
             .navigationTitle("Ещё")
+            .confirmationDialog(
+                "Сбросить весь прогресс?",
+                isPresented: $showReset,
+                titleVisibility: .visible
+            ) {
+                Button("Сбросить всё", role: .destructive) {
+                    store.resetAll()
+                    Haptics.error()
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Уровни формул, XP, streak и вся статистика будут удалены без возможности восстановления.")
+            }
         }
     }
 }

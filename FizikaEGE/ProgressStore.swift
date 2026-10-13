@@ -100,6 +100,18 @@ final class ProgressStore: ObservableObject {
         } catch { /* первый запуск — пусто */ }
     }
 
+    /// Полный сброс: уровни, XP, streak, статистика. ФИО ученика сохраняем.
+    func resetAll() {
+        progress = [:]
+        xp = 0
+        activity = []
+        achievements = []
+        totalSeconds = 0
+        lastLevelUps = []
+        save()
+        objectWillChange.send()
+    }
+
     // MARK: Доступ
     func prog(_ id: String) -> FormulaProgress {
         progress[id] ?? FormulaProgress(formulaId: id)

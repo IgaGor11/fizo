@@ -444,13 +444,37 @@ struct InputTrain: View {
     let onResult: (Bool) -> Void
     @StateObject private var input = FormulaInput()
     @State private var verdict: Bool?
+    @State private var cursorOn = true
+
+    /// Текст, разрезанный по курсору, для рисованного курсора как в PhotoMath.
+    private func previewParts() -> (String, String) {
+        let clamped = max(0, min(input.cursor, input.text.count))
+        let idx = input.text.index(input.text.startIndex, offsetBy: clamped,
+                                   limitedBy: input.text.endIndex) ?? input.text.endIndex
+        return (String(input.text[..<idx]), String(input.text[idx...]))
+    }
 
     var body: some View {
         VStack(spacing: 12) {
             Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
-            // Живой красивый предпросмотр того, что набираете
-            if !input.text.trimmingCharacters(in: .whitespaces).isEmpty {
-                LatexView(latex: input.text, fontSize: 24)
+            // Как в PhotoMath: большая красивая формула с мигающим курсором
+            HStack(spacing: 0) {
+                let parts = previewParts()
+                MiniLatex(latex: parts.0, fontSize: 28)
+                Text("▍")
+                    .font(.system(size: 28)).bold()
+                    .foregroundStyle(.green)
+                    .opacity(cursorOn ? 1 : 0.15)
+                MiniLatex(latex: parts.1, fontSize: 28)
+            }
+            .frame(maxWidth: .infinity, minHeight: 90)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.green.opacity(0.08)))
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.53).repeatForever(autoreverses: true)) {
+                    cursorOn.toggle()
+                }
             }
             FormulaTextField(input: input)
             FormulaKeyboard(input: input)
@@ -491,11 +515,17 @@ struct InputTrain: View {
 
 final class FormulaInput: ObservableObject {
     @Published var text = ""
+    /// Позиция курсора в символах (для рисованного курсора в предпросмотре).
+    @Published var cursor = 0
     weak var field: UITextField?
 
     func insert(_ s: String, backBy: Int = 0) {
         Haptics.tap()
-        guard let f = field else { text += s; return }
+        guard let f = field else {
+            text += s
+            cursor = text.count
+            return
+        }
         if f.selectedTextRange == nil {
             f.becomeFirstResponder()
         }
@@ -509,15 +539,18 @@ final class FormulaInput: ObservableObject {
         } else {
             text += s
             f.text = text
+            cursor = text.count
             return
         }
         text = f.text ?? ""
+        syncCursor()
     }
 
     func backspace() {
         Haptics.tap()
         guard let f = field else {
             if !text.isEmpty { text.removeLast() }
+            cursor = text.count
             return
         }
         if let range = f.selectedTextRange, !range.isEmpty {
@@ -526,6 +559,34 @@ final class FormulaInput: ObservableObject {
             f.deleteBackward()
         }
         text = f.text ?? ""
+        syncCursor()
+    }
+
+    /// Сдвинуть курсор на delta символов (стрелки ◀ ▶).
+    func moveCursor(_ delta: Int) {
+        Haptics.tap()
+        guard let f = field else { return }
+        f.becomeFirstResponder()
+        let cur = f.selectedTextRange?.start ?? f.endOfDocument
+        if let target = f.position(from: cur, offset: delta) {
+            f.selectedTextRange = f.textRange(from: target, to: target)
+        }
+        syncCursor()
+    }
+
+    /// Прочитать нативный курсор UITextField в наши символы.
+    func syncCursor() {
+        guard let f = field, let r = f.selectedTextRange else { return }
+        let off16 = f.offset(from: f.beginningOfDocument, to: r.start)
+        cursor = Self.charOffset(of: off16, in: text)
+    }
+
+    static func charOffset(of off16: Int, in text: String) -> Int {
+        let u16 = text.utf16
+        let clamped = max(0, min(off16, u16.count))
+        let i16 = u16.index(u16.startIndex, offsetBy: clamped)
+        guard let i = String.Index(i16, within: text) else { return text.count }
+        return text.distance(from: text.startIndex, to: i)
     }
 }
 
@@ -541,6 +602,7 @@ struct FormulaTextField: UIViewRepresentable {
         f.autocorrectionType = .no
         // Только наша клавиатура: системную не показываем, поле нужно для курсора
         f.inputView = UIView()
+        f.delegate = context.coordinator
         f.addTarget(context.coordinator, action: #selector(Coord.edited(_:)), for: .editingChanged)
         input.field = f
         return f
@@ -552,10 +614,16 @@ struct FormulaTextField: UIViewRepresentable {
 
     func makeCoordinator() -> Coord { Coord(input: input) }
 
-    final class Coord: NSObject {
+    final class Coord: NSObject, UITextFieldDelegate {
         let input: FormulaInput
         init(input: FormulaInput) { self.input = input }
-        @objc func edited(_ f: UITextField) { input.text = f.text ?? "" }
+        @objc func edited(_ f: UITextField) {
+            input.text = f.text ?? ""
+            input.syncCursor()
+        }
+        func textFieldDidChangeSelection(_ textField: UITextField) {
+            input.syncCursor()
+        }
     }
 }
 
@@ -577,7 +645,7 @@ struct FormulaKeyboard: View {
 
     private let digits: [[FormulaKey]] = [
         [.init("7"), .init("8"), .init("9"), .init("+"), .init("−", insert: "-"), .init("×", insert: "*")],
-        [.init("4"), .init("5"), .init("6"), .init("("), .init(")"), .init("÷", insert: "/")],
+        [.init("4"), .init("5"), .init("6"), .init("(", insert: "()", backBy: 1), .init(")"), .init("÷", insert: "/")],
         [.init("1"), .init("2"), .init("3"), .init("="), .init("."), .init("±", insert: "\\pm ")],
         [.init("0"), .init("x"), .init("y"), .init("t"), .init("·", insert: "\\cdot "), .init("⌫")]
     ]
@@ -603,7 +671,17 @@ struct FormulaKeyboard: View {
                 PageTab("Aa", index: 2)
                 PageTab("fx", index: 3)
                 Spacer()
-                Button("Очистить") { input.text = ""; input.field?.text = "" }
+                Button("◀") { input.moveCursor(-1) }
+                    .font(.caption).bold()
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+                Button("▶") { input.moveCursor(1) }
+                    .font(.caption).bold()
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+                Button("Очистить") { input.text = ""; input.cursor = 0; input.field?.text = "" }
                     .font(.caption)
             }
             if page == 2 {
@@ -692,16 +770,44 @@ struct BuildTrain: View {
         VStack(spacing: 12) {
             Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
             Text("Соберите формулу из блоков по порядку").font(.callout).foregroundStyle(.secondary)
-            // Собранное — сразу красиво
-            if !picked.isEmpty {
-                LatexView(latex: assembled, fontSize: 24)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ваш ответ · \(picked.count) из \(shuffled.count)")
+                    .font(.headline).foregroundStyle(.secondary)
+                if !picked.isEmpty {
+                    LatexView(latex: assembled, fontSize: 26)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if picked.isEmpty {
+                            Text("Нажимайте блоки ниже по порядку")
+                                .font(.callout).foregroundStyle(.secondary)
+                                .padding(.vertical, 10)
+                        }
+                        ForEach(picked.indices, id: \.self) { pi in
+                            Button {
+                                picked.remove(at: pi)
+                                verdict = nil
+                                Haptics.tap()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text("\(pi + 1)")
+                                        .font(.caption).bold()
+                                        .frame(width: 22, height: 22)
+                                        .background(Circle().fill(Color.white.opacity(0.3)))
+                                    Text(shuffled[picked[pi]])
+                                        .font(.title3.monospaced())
+                                }
+                                .padding(.horizontal, 12).padding(.vertical, 10)
+                                .background(Color.blue.opacity(0.25))
+                                .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
             }
-            WrapChips(texts: picked.map { shuffled[$0] }, color: .blue) { idx in
-                picked.remove(at: idx); verdict = nil
-            }
-            .frame(minHeight: 64)
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.1)))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
             if let v = verdict {
                 Text(v ? "Верно! ✅" : "Попробуйте ещё или пропустите")
                     .font(.title3)
@@ -717,18 +823,31 @@ struct BuildTrain: View {
                         .controlSize(.large)
                 }
             } else {
-                WrapChips(texts: availableTexts, color: .gray) { idx in
-                    picked.append(availableIndices[idx]); Haptics.tap()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Блоки").font(.headline).foregroundStyle(.secondary)
+                    WrapChips(texts: availableTexts, color: .gray) { idx in
+                        picked.append(availableIndices[idx]); Haptics.tap()
+                    }
                 }
-                .frame(minHeight: 140)
-                Button("Проверить") {
-                    let ok = !assembled.isEmpty && assembled == canonical
-                    verdict = ok
-                    if ok { Haptics.success() } else { Haptics.error() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 150)
+                HStack {
+                    Button("Сбросить") {
+                        picked = []
+                        Haptics.tap()
+                    }
+                    .controlSize(.large)
+                    .disabled(picked.isEmpty)
+                    Spacer()
+                    Button("Проверить") {
+                        let ok = !assembled.isEmpty && assembled == canonical
+                        verdict = ok
+                        if ok { Haptics.success() } else { Haptics.error() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(picked.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(picked.isEmpty)
             }
         }
         .padding()
