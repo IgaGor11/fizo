@@ -263,7 +263,7 @@ struct TrainingHost: View {
         case .input:
             InputTrain(formula: f, onResult: gradeBool)
         case .build:
-            BuildTrain(formula: f, onResult: gradeBool)
+            BuildTrain(formula: f, onGrade: grade)
         }
     }
 
@@ -755,128 +755,199 @@ struct KeyStyle: ButtonStyle {
     }
 }
 
-// MARK: - Режим 4: Сборка формулы из блоков
+// MARK: - Режим 4: Сборка формулы из слотов (структурный конструктор)
 struct BuildTrain: View {
     let formula: Formula
-    let onResult: (Bool) -> Void
-    @State private var shuffled: [String] = []
-    @State private var canonical: String = ""
-    @State private var picked: [Int] = []
-    @State private var verdict: Bool?
+    let onGrade: (Int) -> Void
+    @StateObject private var st: BuildState
 
-    var assembled: String { picked.map { shuffled[$0] }.joined(separator: " ") }
+    init(formula: Formula, onGrade: @escaping (Int) -> Void) {
+        self.formula = formula
+        self.onGrade = onGrade
+        _st = StateObject(wrappedValue: BuildState(formula: formula))
+    }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Text(formula.title).font(.title2).bold().multilineTextAlignment(.center)
-            Text("Соберите формулу из блоков по порядку").font(.callout).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Ваш ответ · \(picked.count) из \(shuffled.count)")
-                    .font(.headline).foregroundStyle(.secondary)
-                if !picked.isEmpty {
-                    LatexView(latex: assembled, fontSize: 26)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        if picked.isEmpty {
-                            Text("Нажимайте блоки ниже по порядку")
-                                .font(.callout).foregroundStyle(.secondary)
-                                .padding(.vertical, 10)
-                        }
-                        ForEach(picked.indices, id: \.self) { pi in
-                            Button {
-                                picked.remove(at: pi)
-                                verdict = nil
-                                Haptics.tap()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text("\(pi + 1)")
-                                        .font(.caption).bold()
-                                        .frame(width: 22, height: 22)
-                                        .background(Circle().fill(Color.white.opacity(0.3)))
-                                    Text(shuffled[picked[pi]])
-                                        .font(.title3.monospaced())
-                                }
-                                .padding(.horizontal, 12).padding(.vertical, 10)
-                                .background(Color.blue.opacity(0.25))
-                                .clipShape(Capsule())
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
-            if let v = verdict {
-                Text(v ? "Верно! ✅" : "Попробуйте ещё или пропустите")
-                    .font(.title3)
-                    .foregroundStyle(v ? .green : .orange).bold()
-                if !v { LatexView(latex: formula.latex, fontSize: 24) }
-                HStack {
-                    if !v {
-                        Button("Ещё раз") { picked = []; verdict = nil }
-                            .controlSize(.large)
-                    }
-                    Button(v ? "Дальше" : "Пропустить (не засчитано)") { onResult(v) }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                }
+            if st.slots.isEmpty {
+                // страховка: дерево пустое — показываем формулу как есть
+                LatexView(latex: formula.latex, fontSize: 24)
+                Button("Дальше") { onGrade(3) }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
             } else {
+                TemplateView(node: st.tree, st: st)
+                    .frame(maxWidth: .infinity)
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
+
+                if let hint = st.hintText {
+                    Text("💡 \(hint)").font(.callout).foregroundStyle(.yellow)
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Блоки").font(.headline).foregroundStyle(.secondary)
-                    WrapChips(texts: availableTexts, color: .gray) { idx in
-                        picked.append(availableIndices[idx]); Haptics.tap()
+                    FlexibleWrap {
+                        ForEach(st.available, id: \.id) { leaf in
+                            ChipView(leaf: leaf, selected: st.selectedID == leaf.id)
+                                .onTapGesture { st.toggleSelect(leaf.id) }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: 150)
-                HStack {
-                    Button("Сбросить") {
-                        picked = []
-                        Haptics.tap()
+
+                if st.results == nil {
+                    HStack {
+                        Button("💡 \(st.hintsLeft)") { st.hint() }
+                            .controlSize(.large)
+                            .disabled(st.hintsLeft == 0 || st.locked)
+                        Spacer()
+                        Button("Сбросить") { st.reset() }
+                            .controlSize(.large)
+                            .disabled(st.placement.isEmpty)
+                        Button("Проверить") { st.check() }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .disabled(!st.isComplete)
                     }
-                    .controlSize(.large)
-                    .disabled(picked.isEmpty)
-                    Spacer()
-                    Button("Проверить") {
-                        let ok = !assembled.isEmpty && assembled == canonical
-                        verdict = ok
-                        if ok { Haptics.success() } else { Haptics.error() }
+                } else if st.allCorrect || st.revealed {
+                    Text(st.revealed ? "Вот эталон — запомните его" : "Идеально! ✅")
+                        .font(.title3).bold().foregroundStyle(.green)
+                    Button("Дальше") { onGrade(st.revealed ? 1 : BuildState.grade(for: st.score)) }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                } else {
+                    Text("Верно \(Int(st.score * Double(st.slots.count))) из \(st.slots.count) — красное исправьте")
+                        .font(.title3).foregroundStyle(.orange).bold()
+                    HStack {
+                        Button("Ещё раз") { st.clearWrong() }.controlSize(.large)
+                        Spacer()
+                        Button("Эталон") { st.reveal() }.controlSize(.large)
+                        Button("Пропустить") { onGrade(1) }
+                            .buttonStyle(.borderedProminent).controlSize(.large)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(picked.isEmpty)
                 }
             }
         }
         .padding()
-        .onAppear {
-            let tokens = ProgressStore.buildTokens(for: formula.latex)
-            canonical = tokens.joined(separator: " ")
-            shuffled = tokens.shuffled()
+    }
+}
+
+// MARK: - Чип с настоящим LaTeX-рендером, окрашенный по роли
+struct ChipView: View {
+    let leaf: BuildLeaf
+    var selected = false
+    var result: Bool? = nil
+    var fontSize: CGFloat = 18
+
+    var body: some View {
+        MiniLatex(latex: leaf.latex, fontSize: fontSize)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(leaf.role.color.opacity(selected ? 0.55 : 0.22))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(borderColor, lineWidth: selected ? 3 : 1.5)
+            )
+            .scaleEffect(selected ? 1.08 : 1)
+            .draggable(leaf.id.uuidString)
+    }
+
+    private var borderColor: Color {
+        if result == true { return .green }
+        if result == false { return .red }
+        return leaf.role.color
+    }
+}
+
+// MARK: - Слот: пустое гнездо или поставленный чип
+struct SlotBox: View {
+    let leaf: BuildLeaf
+    var scale: CGFloat = 1
+    @ObservedObject var st: BuildState
+
+    var body: some View {
+        Group {
+            if let pid = st.placement[leaf.id],
+               let placed = st.pool.first(where: { $0.id == pid }) {
+                ChipView(leaf: placed, result: st.results?[leaf.id], fontSize: 18 * scale)
+                    .onTapGesture { st.unplace(leaf.id) }
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(st.hintID == leaf.id ? Color.yellow.opacity(0.25) : Color.secondary.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                        .foregroundStyle(st.hintID == leaf.id ? .yellow : Color.secondary)
+                }
+                .frame(width: boxWidth, height: 52 * scale)
+                .scaleEffect(st.hintID == leaf.id ? 1.1 : 1)
+                .onTapGesture {
+                    if let sel = st.selectedID { st.place(sel, to: leaf.id) }
+                }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let raw = items.first, let uuid = UUID(uuidString: raw) else { return false }
+                    st.place(uuid, to: leaf.id)
+                    return true
+                }
+            }
         }
     }
 
-    private var availableIndices: [Int] {
-        shuffled.indices.filter { !picked.contains($0) }
+    private var boxWidth: CGFloat {
+        let base: CGFloat = (leaf.role == .operator || leaf.role == .relation) ? 48 : 64
+        return base * scale
     }
-    private var availableTexts: [String] { availableIndices.map { shuffled[$0] } }
 }
 
-struct WrapChips: View {
-    let texts: [String]
-    let color: Color
-    let onTap: (Int) -> Void
+// MARK: - Шаблон: дерево со слотами (дроби — настоящая черта, индексы — места)
+struct TemplateView: View {
+    let node: BuildNode
+    var scale: CGFloat = 1
+    @ObservedObject var st: BuildState
+
+    @ViewBuilder
     var body: some View {
-        FlexibleWrap {
-            ForEach(texts.indices, id: \.self) { i in
-                Button(texts[i]) { onTap(i) }
-                    .font(.title2.monospaced())
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(color.opacity(0.2))
-                    .clipShape(Capsule())
+        switch node {
+        case .row(let a):
+            HStack(spacing: 8 * scale) {
+                ForEach(a.indices, id: \.self) { i in
+                    TemplateView(node: a[i], scale: scale, st: st)
+                }
             }
+        case .fraction(let n, let d):
+            VStack(spacing: 2) {
+                TemplateView(node: n, scale: scale * 0.9, st: st)
+                Divider().frame(minWidth: 56 * scale)
+                TemplateView(node: d, scale: scale * 0.9, st: st)
+            }
+        case .scripts(let b, let s, let u):
+            HStack(alignment: .center, spacing: 2) {
+                TemplateView(node: b, scale: scale, st: st)
+                VStack(spacing: 0) {
+                    if let u = u {
+                        TemplateView(node: u, scale: scale * 0.62, st: st)
+                    } else if s != nil {
+                        Spacer()
+                    }
+                    if let s = s {
+                        TemplateView(node: s, scale: scale * 0.62, st: st)
+                    } else if u != nil {
+                        Spacer()
+                    }
+                }
+            }
+        case .sqrt(let r):
+            HStack(spacing: 0) {
+                Text("√").font(.system(size: 26 * scale))
+                VStack(spacing: 0) {
+                    TemplateView(node: r, scale: scale * 0.9, st: st)
+                    Rectangle().frame(height: 2).opacity(0.9)
+                }
+            }
+        case .fixed(let t):
+            Text(t).font(.system(size: 24 * scale))
+        case .leaf(let l):
+            SlotBox(leaf: l, scale: scale, st: st)
         }
     }
 }
