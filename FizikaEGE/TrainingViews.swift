@@ -894,7 +894,7 @@ struct SlotBox: View {
     }
 
     private var boxWidth: CGFloat {
-        let base: CGFloat = (leaf.role == .operator || leaf.role == .relation) ? 48 : 64
+        let base: CGFloat = (leaf.role == .op || leaf.role == .relation) ? 48 : 64
         return base * scale
     }
 }

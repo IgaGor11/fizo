@@ -7,13 +7,13 @@ import SwiftUI
 // MARK: Роли чипов (цвет + подсказка)
 
 enum LeafRole: String, CaseIterable {
-    case value, number, operator, relation, greek, function, constant
+    case value, number, op, relation, greek, function, constant
 
     var color: Color {
         switch self {
         case .value: return .blue
         case .number: return .teal
-        case .operator: return .orange
+        case .op: return .orange
         case .relation: return .purple
         case .greek: return .cyan
         case .function: return .green
@@ -25,7 +25,7 @@ enum LeafRole: String, CaseIterable {
         switch self {
         case .value: return "величина"
         case .number: return "число"
-        case .operator: return "действие"
+        case .op: return "действие"
         case .relation: return "знак равенства"
         case .greek: return "греческая буква"
         case .function: return "функция"
@@ -144,7 +144,7 @@ enum BuildParser {
             let sign = String(s.prefix(1))
             let rest = String(s.dropFirst()).trimmingCharacters(in: .whitespaces)
             if !rest.isEmpty {
-                return .row([.leaf(BuildLeaf(latex: sign, role: .operator)), parse(rest)])
+                return .row([.leaf(BuildLeaf(latex: sign, role: .op)), parse(rest)])
             }
         }
         // 11. число в начале (2\pi R, 13,6, 100\%)
@@ -518,7 +518,7 @@ enum BuildParser {
 
     static func roleOfCommand(_ cmd: String) -> LeafRole {
         if funcCmds.contains(cmd) { return .function }
-        if opCmds.contains(cmd) { return .operator }
+        if opCmds.contains(cmd) { return .op }
         if relCmds.contains(cmd) { return .relation }
         if cmd == "pi" { return .number }
         if greekCmds.contains(cmd) { return .greek }
@@ -527,8 +527,8 @@ enum BuildParser {
 
     static func roleOfChunk(_ s: String) -> LeafRole {
         if s == "=" { return .relation }
-        if s == "+" || s == "-" || s == "*" || s == "/" { return .operator }
-        if s == "..." || s == "%" { return .operator }
+        if s == "+" || s == "-" || s == "*" || s == "/" { return .op }
+        if s == "..." || s == "%" { return .op }
         if !s.isEmpty && s.allSatisfy({ $0.isNumber || $0 == "," || $0 == "." }) { return .number }
         if s.count == 1 && constLetters.contains(s) { return .constant }
         return .value
