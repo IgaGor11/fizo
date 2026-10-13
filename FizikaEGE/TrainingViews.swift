@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Сессия тренировки
 
-enum SessionMode: String, Identifiable {
+enum SessionMode: String, Identifiable, CaseIterable {
     case flashcards, choice, input, build, mixed
     var id: String { rawValue }
     var title: String {
@@ -14,12 +14,138 @@ enum SessionMode: String, Identifiable {
         case .mixed: return "Смешанный"
         }
     }
+    var icon: String {
+        switch self {
+        case .flashcards: return "rectangle.on.rectangle.angled"
+        case .choice: return "list.bullet.circle"
+        case .input: return "keyboard"
+        case .build: return "puzzlepiece"
+        case .mixed: return "shuffle"
+        }
+    }
+    var hint: String {
+        switch self {
+        case .flashcards: return "Вспомни и оцени себя"
+        case .choice: return "Узнай правильное название"
+        case .input: return "Напиши формулу сам"
+        case .build: return "Собери из блоков"
+        case .mixed: return "Приложение подберёт само"
+        }
+    }
 }
 
 struct TrainingSession: Identifiable {
     let id = UUID()
     let formulas: [Formula]
     let mode: SessionMode
+}
+
+// MARK: - Старт тренировки: сначала раздел, потом режим
+struct TrainingScope: Hashable {
+    let title: String
+    let formulas: [Formula]
+}
+
+struct StartTrainingView: View {
+    @EnvironmentObject var store: ProgressStore
+    @Environment(\.dismiss) var dismiss
+    @State private var scope: TrainingScope?
+    @State private var session: TrainingSession?
+
+    var body: some View {
+        NavigationStack {
+            if scope == nil {
+                List {
+                    Section {
+                        Button {
+                            Haptics.tap()
+                            scope = TrainingScope(title: "Итоговый зачёт", formulas: store.formulas)
+                        } label: {
+                            HStack {
+                                Image(systemName: "trophy.fill").foregroundStyle(.yellow)
+                                Text("Итоговый зачёт").font(.headline)
+                                Spacer()
+                                Text("все разделы").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+                    Section("Разделы") {
+                        ForEach(FormulasBundle.sectionsOrder, id: \.self) { sec in
+                            let list = store.formulas.filter { $0.section == sec }
+                            let due = store.dueFormulas(scope: list).count
+                            Button {
+                                Haptics.tap()
+                                scope = TrainingScope(title: sec, formulas: list)
+                            } label: {
+                                HStack {
+                                    Text(sec).font(.headline)
+                                    Spacer()
+                                    Text("к повторению: \(due)").font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 8)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Что тренируем?")
+            } else {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(SessionMode.allCases) { m in
+                            ModeCard(mode: m) {
+                                start(mode: m)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .navigationTitle(scope?.title ?? "")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Разделы") { scope = nil }
+                    }
+                }
+            }
+        }
+        .fullScreenCover(item: $session) { s in
+            TrainingHost(session: s).environmentObject(store)
+        }
+    }
+
+    private func start(mode: SessionMode) {
+        guard let scope else { return }
+        let list = store.sessionFormulas(scope: scope.formulas)
+        guard !list.isEmpty else { return }
+        Haptics.tap()
+        session = TrainingSession(formulas: list, mode: mode)
+    }
+}
+
+struct ModeCard: View {
+    let mode: SessionMode
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: mode.icon)
+                    .font(.title)
+                    .frame(width: 48)
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(mode.title).font(.headline)
+                    Text(mode.hint).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+            }
+            .padding()
+            .frame(minHeight: 88)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 struct TrainingHost: View {
@@ -136,11 +262,14 @@ struct FlashcardTrain: View {
             if !flipped {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color.secondary.opacity(0.12))
-                    .frame(height: 140)
-                    .overlay(Text("Вспомните формулу…").foregroundStyle(.secondary))
+                    .frame(height: 180)
+                    .overlay(
+                        VStack(spacing: 8) {
+                            Text("Вспомните формулу…").font(.title3)
+                            Text("Нажмите, чтобы перевернуть").font(.caption).foregroundStyle(.secondary)
+                        }
+                    )
                     .onTapGesture { withAnimation { flipped = true }; Haptics.tap() }
-                Button("Показать формулу") { withAnimation { flipped = true } }
-                    .buttonStyle(.bordered)
             } else {
                 LatexView(latex: formula.latex, fontSize: 24)
                     .rotation3DEffect(.degrees(flipped ? 0 : 90), axis: (x: 0, y: 1, z: 0))
@@ -168,11 +297,11 @@ struct GradeButton: View {
     }
     var body: some View {
         Button(title, action: action)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .font(.title3)
+            .frame(maxWidth: .infinity, minHeight: 68)
             .background(color.opacity(0.18))
             .foregroundStyle(color)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 
@@ -197,16 +326,18 @@ struct ChoiceTrain: View {
                     }
                 } label: {
                     HStack {
-                        Text(o.title).multilineTextAlignment(.leading)
+                        Text(o.title).font(.title3).multilineTextAlignment(.leading)
                         Spacer()
                         if picked == o.id {
                             Image(systemName: o.id == formula.id ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.title2)
                                 .foregroundStyle(o.id == formula.id ? .green : .red)
                         }
                     }
-                    .padding()
+                    .padding(18)
+                    .frame(minHeight: 64)
                     .background(bg(for: o))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .disabled(picked != nil)
             }
@@ -246,8 +377,9 @@ struct InputTrain: View {
                 Text(v ? "Верно! ✅" : "Не совсем — сравните с эталоном")
                     .foregroundStyle(v ? .green : .orange).bold()
                 LatexView(latex: formula.latex, fontSize: 22)
-                Button("Дальше") { onResult(v) }
+                Button(v ? "Дальше" : "Пропустить (не засчитано)") { onResult(v) }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
             } else {
                 HStack {
                     Button("Проверить") {
@@ -256,8 +388,10 @@ struct InputTrain: View {
                         if ok { Haptics.success() } else { Haptics.error() }
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(input.text.trimmingCharacters(in: .whitespaces).isEmpty)
                     Button("Не помню") { verdict = false }
+                        .controlSize(.large)
                 }
             }
         }
@@ -412,10 +546,10 @@ struct FormulaKeyboard: View {
 struct KeyStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.monospaced())
-            .frame(maxWidth: .infinity, minHeight: 40)
+            .font(.title3.monospaced())
+            .frame(maxWidth: .infinity, minHeight: 48)
             .background(Color.secondary.opacity(configuration.isPressed ? 0.3 : 0.18))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -460,6 +594,7 @@ struct BuildTrain: View {
                     if ok { Haptics.success() } else { Haptics.error() }
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(picked.isEmpty)
             }
         }

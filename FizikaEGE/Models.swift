@@ -37,16 +37,22 @@ struct FormulasBundle {
         "Квантовая физика"
     ]
 
+    /// Последняя ошибка загрузки (для диагностики на экране, а не чёрного списка).
+    static var lastError: String?
+
     static func load() -> [Formula] {
+        lastError = nil
         guard let url = Bundle.main.url(forResource: "formulas", withExtension: "json") else {
-            // Fallback для previews / тестов: пусто, UI покажет заглушку
+            lastError = "formulas.json не найден в бандле"
             return []
         }
         do {
             let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode([Formula].self, from: data)
+            let list = try JSONDecoder().decode([Formula].self, from: data)
+            if list.isEmpty { lastError = "formulas.json пуст" }
+            return list
         } catch {
-            assertionFailure("formulas.json decode error: \(error)")
+            lastError = "formulas.json не декодируется: \(error.localizedDescription)"
             return []
         }
     }

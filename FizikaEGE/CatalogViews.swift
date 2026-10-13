@@ -83,7 +83,10 @@ struct TopicView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             Button("Тренировать") {
-                session = TrainingSession(formulas: Array(list.shuffled().prefix(15)), mode: .mixed)
+                let list = store.sessionFormulas(scope: list)
+                if !list.isEmpty {
+                    session = TrainingSession(formulas: list, mode: .mixed)
+                }
             }
         }
         .sheet(item: $session) { s in TrainingHost(session: s).environmentObject(store) }

@@ -28,9 +28,8 @@ targets:
       - path: FizikaEGE
         excludes:
           - Info.plist
-    resources:
-      - Resources/formulas.json
-      - Resources/Assets.xcassets
+    # formulas.json и Assets.xcassets лежат в sources и автоматически
+    # попадают в фазу Resources (стандартный layout Xcode).
     scheme:
       testTargets: []
 

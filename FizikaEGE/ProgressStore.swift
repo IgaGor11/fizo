@@ -53,11 +53,15 @@ final class ProgressStore: ObservableObject {
     @Published var studentName: String = ""
     @Published var totalSeconds: Double = 0
     @Published var lastLevelUps: [String] = []
+    @Published var loadError: String?
 
     private var saveCancellable: AnyCancellable?
 
     init(loadBundle: Bool = true) {
-        if loadBundle { formulas = FormulasBundle.load() }
+        if loadBundle {
+            formulas = FormulasBundle.load()
+            loadError = FormulasBundle.lastError
+        }
         load()
         // Автосейв при изменениях (debounce)
         saveCancellable = Publishers.CombineLatest4($progress, $xp, $activity, $achievements)
@@ -157,6 +161,14 @@ final class ProgressStore: ObservableObject {
 
     func newFormulas(limit: Int = 20) -> [Formula] {
         formulas.filter { prog($0.id).totalAnswers == 0 }.prefix(limit).map { $0 }
+    }
+
+    /// Готовый список для сессии: сначала просроченные, а если повторять
+    /// нечего — все формулы области в случайном порядке (тренировка не пустая).
+    func sessionFormulas(scope: [Formula], limit: Int = 20, now: Date = Date()) -> [Formula] {
+        let due = dueFormulas(scope: scope, now: now)
+        if !due.isEmpty { return Array(due.prefix(limit)) }
+        return Array(scope.shuffled().prefix(limit))
     }
 
     // MARK: Adaptive Mix — выбор режима по силе памяти

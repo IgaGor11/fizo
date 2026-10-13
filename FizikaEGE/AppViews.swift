@@ -39,13 +39,20 @@ struct ContentView: View {
 struct HomeView: View {
     @EnvironmentObject var store: ProgressStore
     @Binding var tab: Int
-    @State private var session: TrainingSession?
+    @State private var showFlow = false
     @State private var showConfetti = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    if let err = store.loadError {
+                        Text("⚠️ База формул не загрузилась: \(err)")
+                            .font(.caption).foregroundStyle(.red)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 16).fill(Color.red.opacity(0.12)))
+                    }
                     header
                     continueCard
                     countsRow
@@ -53,9 +60,9 @@ struct HomeView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Физика · ЕГЭ")
-            .sheet(item: $session) { s in
-                TrainingHost(session: s).environmentObject(store)
+            .navigationTitle("EzyFizi")
+            .sheet(isPresented: $showFlow) {
+                StartTrainingView().environmentObject(store)
             }
             .overlay { if showConfetti { ConfettiView() } }
         }
@@ -82,18 +89,21 @@ struct HomeView: View {
     private var continueCard: some View {
         let due = store.dueFormulas()
         return VStack(alignment: .leading, spacing: 8) {
-            Text("К повторению: \(due.count)").font(.headline)
-            Text(due.isEmpty ? "Всё повторено! Загляните завтра или возьмите новые формулы." : "FSRS подобрал самое срочное — начните с него.")
+            Text(due.isEmpty && !store.formulas.isEmpty
+                  ? "Всё повторено! Можно пройти итоговый зачёт."
+                  : "К повторению: \(due.count)").font(.headline)
+            Text("Выберите раздел и режим — дальше всё просто.")
                 .font(.subheadline).foregroundStyle(.secondary)
             Button {
                 Haptics.tap()
-                session = TrainingSession(formulas: Array(due.prefix(20)), mode: .mixed)
+                showFlow = true
             } label: {
-                Label("Продолжить тренировку", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
+                Label("Начать тренировку", systemImage: "play.fill")
+                    .font(.title3)
+                    .frame(maxWidth: .infinity, minHeight: 56)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(due.isEmpty)
+            .disabled(store.formulas.isEmpty)
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.accentColor.opacity(0.12)))

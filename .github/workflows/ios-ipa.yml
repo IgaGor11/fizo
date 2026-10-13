@@ -9,7 +9,6 @@ on:
       - main
     paths:
       - "FizikaEGE/**"
-      - "Resources/**"
       - "project.yml"
       - ".github/workflows/ios-ipa.yml"
 
@@ -24,10 +23,16 @@ jobs:
 
       - name: Validate formulas.json
         run: |
-          python3 -c "import json; d=json.load(open('Resources/formulas.json')); print('formulas:', len(d)); assert len(d) > 50"
+          python3 -c "import json; d=json.load(open('FizikaEGE/formulas.json')); print('formulas:', len(d)); assert len(d) > 50"
 
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: Check bundle resources in generated project
+        run: |
+          grep -q "formulas.json in Resources" FizikaEGE.xcodeproj/project.pbxproj
+          grep -q "Assets.xcassets in Resources" FizikaEGE.xcodeproj/project.pbxproj
+          echo "resources OK"
 
       - name: Build archive (unsigned)
         run: |
