@@ -46,14 +46,14 @@ jobs:
         run: |
           APP_PATH=$(echo build/FizikaEGE.xcarchive/Products/Applications/*.app)
           echo "App: $APP_PATH"
-          rm -rf Payload FizikaEGE-unsigned.ipa
+          rm -rf Payload EzyFizi-unsigned.ipa
           mkdir Payload
           cp -R "$APP_PATH" Payload/
-          zip -r FizikaEGE-unsigned.ipa Payload
+          zip -r EzyFizi-unsigned.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: FizikaEGE-unsigned
-          path: FizikaEGE-unsigned.ipa
+          name: EzyFizi-unsigned
+          path: EzyFizi-unsigned.ipa
           retention-days: 30
